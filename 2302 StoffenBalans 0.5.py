@@ -196,27 +196,52 @@ class VEMRequirementCalculator:
         return self.df
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODULE 2.2 — VEM Allocation
+# MODULE 2.2 — VEM Allocation (updated 17.Mar)
 # ══════════════════════════════════════════════════════════════════════════════
 class VEMAllocationCalculator:
     VEM_KM=1500.0; VEM_CF=940.0; DS_DC=0.876
     LM=0.02; LK=0.02; LC=0.02; LR=0.05
     PGK=0.75; PMK=0.25; PGP=0.90; PMP=0.10
     def __init__(self, df): self.df = df.copy()
+    
     @staticmethod
     def _soil_p(st):
         s = str(st).lower().strip()
-        vc,vn,vm = 960.0, 720.0, 1000.0
-        if 'klei' in s: yg,yf,ym,yn = 10005,10005,17685,6000
-        elif 'zand' in s: yg,yf,ym,yn = 9360,9360,17773,6000
-        elif 'veen' in s: yg,yf,ym,yn = 9751,8668,16620,6000
-        else: yg,yf,ym,yn = 9700,9700,17300,6000
-        return {'yield_gs':yg,'yield_fg':yf,'yield_ms':ym,'yield_nat':yn,'vem_cult':vc,'vem_nat':vn,'vem_maize':vm}
+        
+        # We assign Yields AND VEM values based on soil type
+        # yg: yield grass silage (cult), yf: yield fresh grass (cult), ym: maize
+        # yn_gs: yield nature grass silage, yn_fg: yield nature fresh grass
+        # vc_gs: VEM cult grass silage, vc_fg: VEM cult fresh grass
+        # vn_gs: VEM nature grass silage, vn_fg: VEM nature fresh grass
+        
+        if 'klei' in s:   
+            yg, yf, ym, yn_gs, yn_fg = 10005, 8893, 17685, 6000, 5330
+            vc_gs, vc_fg, vn_gs, vn_fg, vm = 960.0, 940.0, 842.0, 860.0, 950.0
+            
+        elif 'zand' in s: 
+            yg, yf, ym, yn_gs, yn_fg = 9360, 8320, 17773, 6000, 5333
+            vc_gs, vc_fg, vn_gs, vn_fg, vm = 960.0, 940.0, 842.0, 860.0, 950.0
+            
+        elif 'veen' in s: 
+            yg, yf, ym, yn_gs, yn_fg = 9751, 8668, 16620, 6000, 5333
+            vc_gs, vc_fg, vn_gs, vn_fg, vm = 957.0, 937.0, 842.0, 860.0, 950.0 
+            
+        else: # Default values if soil is unknown or 'loss'
+            yg, yf, ym, yn_gs, yn_fg = 9700, 9700, 17300, 6000, 6000
+            vc_gs, vc_fg, vn_gs, vn_fg, vm = 960.0, 940.0, 842.0, 860.0, 950.0
+        
+        return {'yield_gs':yg, 'yield_fg':yf, 'yield_ms':ym, 
+                'yield_nat_gs':yn_gs, 'yield_nat_fg':yn_fg, 
+                'vem_gs_cult':vc_gs, 'vem_gs_nat':vn_gs,
+                'vem_fg_cult':vc_fg, 'vem_fg_nat':vn_fg,
+                'vem_maize':vm}
+                
     def _milk_vem(self):
         f,p = self.df['Fat%'], self.df['Pro%']
         GE = 744.38+365.7*f+241.4*p; ME = 584.17+376.6*f*0.94+171.5*p*0.87
         Q = np.where(GE>0, ME/GE*100.0, 0.0)
         return (0.6*(1.0+0.004*(Q-57.0))*0.9752*ME)/6.9
+        
     def run_allocation(self):
         print(f"\n{'='*70}\nMODULE 2.2: VEM Allocation\n{'='*70}")
         
@@ -228,10 +253,22 @@ class VEMAllocationCalculator:
         for c,d in defs.items(): self.df = ensure_numeric(self.df, c, d)
         
         sp = self.df['Soil_Type'].apply(self._soil_p).tolist()
-        for k in ('yield_gs','yield_fg','yield_ms','yield_nat','vem_cult','vem_nat','vem_maize'):
+        
+        # Unpack the new yields and dynamic VEM parameters
+        for k in ('yield_gs','yield_fg','yield_ms','yield_nat_gs','yield_nat_fg',
+                  'vem_gs_cult','vem_gs_nat','vem_fg_cult','vem_fg_nat','vem_maize'):
             self.df[k] = [d[k] for d in sp]
+            
         pn = self.df['NatureGL%'].clip(0,100)
-        self.df['vem_grass_weighted'] = ((100-pn)*self.df['vem_cult']+pn*self.df['vem_nat'])/100
+        
+        # Calculate weighted VEM for both Fresh Grass and Grass Silage
+        self.df['vem_fg_weighted'] = ((100-pn)*self.df['vem_fg_cult'] + pn*self.df['vem_fg_nat'])/100
+        self.df['vem_gs_weighted'] = ((100-pn)*self.df['vem_gs_cult'] + pn*self.df['vem_gs_nat'])/100
+        
+        # Calculate weighted dry matter yields combining cultivated and nature grassland
+        self.df['yield_fg_weighted'] = ((100-pn)*self.df['yield_fg'] + pn*self.df['yield_nat_fg'])/100
+        self.df['yield_gs_weighted'] = ((100-pn)*self.df['yield_gs'] + pn*self.df['yield_nat_gs'])/100
+        
         # Young stock
         vmd = self._milk_vem()
         self.df['kVEM_Intake_Milk_Kalf'] = self.df['Vol_WholeMilk_Kalf']*(1-self.LM)*vmd/1000
@@ -250,23 +287,32 @@ class VEMAllocationCalculator:
         rp = (self.df['Total_VEM_Pink_Farm']-self.df['kVEM_Intake_Conc_Pink']-self.df['kVEM_Intake_FreshGrass_Pink']).clip(lower=0)
         self.df['kVEM_Intake_GrassSilage_Pink'] = rp*self.PGP
         self.df['kVEM_Intake_MaizeSilage_Pink'] = rp*self.PMP
+        
         # Supply
         hrs = self.df['GH_Koe']; ir = np.where(hrs>2, 2.0+0.75*(hrs-2), hrs)
         tgd = self.df['GD_Limited_Koe']+self.df['GD_Combi_Koe']+self.df['GD_Unlimited_Koe']
         fy = (0.337+0.116*self.df['Fat%']+0.06*self.df['Pro%'])*self.df['MilkYield']*365
         mf = 1.0+((fy-9500*self.df['breed_factor'])/500)*0.02; dc = (365-39)/365
-        cgv = tgd*ir*(self.df['vem_grass_weighted']/1000)*dc*mf*self.df['breed_factor']*self.df['Nr_koe']
+        
+        # Use vem_fg_weighted for fresh grazing intake
+        cgv = tgd*ir*(self.df['vem_fg_weighted']/1000)*dc*mf*self.df['breed_factor']*self.df['Nr_koe']
         tgv = cgv+self.df['kVEM_Intake_FreshGrass_Pink']+self.df['kVEM_Intake_FreshGrass_Kalf']
-        tfm = tgv/(self.df['vem_grass_weighted']/1000).replace(0,np.nan)
-        hfn = (tfm/self.df['yield_fg'].replace(0,np.nan)).fillna(0)
+        
+        # Use vem_fg_weighted for translating VEM to Dry Matter of fresh grass
+        tfm = tgv/(self.df['vem_fg_weighted']/1000).replace(0,np.nan)
+        hfn = (tfm/self.df['yield_fg_weighted'].replace(0,np.nan)).fillna(0)
         hag = (self.df['Ha_Grass']-hfn).clip(lower=0)
-        vgs = hag*self.df['yield_gs']*(self.df['vem_grass_weighted']/1000)
+        
+        # Use vem_gs_weighted for calculating available Grass Silage VEM
+        vgs = hag*self.df['yield_gs_weighted']*(self.df['vem_gs_weighted']/1000)
         vms = self.df['Ha_Mais']*self.df['yield_ms']*(self.df['vem_maize']/1000)
+        
         thg = tgv+vgs+vms; mk = thg>0
         rfg = np.where(mk, tgv/thg, 0); rgs = np.where(mk, vgs/thg, 0); rms = np.where(mk, vms/thg, 0)
+        
         # Cow
         vc = self.df['VEM_Concentrate'].replace(0, self.VEM_CF) 
-        dsc = self.df['Kg_conc'] / self.DS_DC
+        dsc = self.df['Kg_conc'] * self.DS_DC
         mkc = self.df['kVEM_Intake_Conc_Kalf']*1000/vc/(1-self.LC)
         mpc = self.df['kVEM_Intake_Conc_Pink']*1000/vc/(1-self.LC)
         mcc = (dsc-mkc-mpc).clip(lower=0)
@@ -277,21 +323,24 @@ class VEMAllocationCalculator:
         self.df['kVEM_Intake_FreshGrass_Cow'] = (hgr*rfg-self.df['kVEM_Intake_FreshGrass_Kalf']-self.df['kVEM_Intake_FreshGrass_Pink']).clip(lower=0)
         self.df['kVEM_Intake_GrassSilage_Cow'] = (hgr*rgs-self.df['kVEM_Intake_GrassSilage_Kalf']-self.df['kVEM_Intake_GrassSilage_Pink']).clip(lower=0)
         self.df['kVEM_Intake_MaizeSilage_Cow'] = (hgr*rms-self.df['kVEM_Intake_MaizeSilage_Kalf']-self.df['kVEM_Intake_MaizeSilage_Pink']).clip(lower=0)
+        
         print(f"  ✓ 2.2 done")
         return self.df
-
+    
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 2.3 — N Intake (DS → N → CP → VRE)
 # ══════════════════════════════════════════════════════════════════════════════
 class NitrogenIntakeCalculator:
     FP=6.25; FD=6.38; RAS=40.0; NK=32.52; DSW=0.228; DSK=0.964
     def __init__(self, df): self.df = df.copy()
+    
     def _soil_N(self, st):
         s = str(st).lower().strip()
-        if 'klei' in s: return {'ng':28.2,'nf':28.2,'nm':12.0,'nn':31.1}
-        elif 'zand' in s: return {'ng':28.6,'nf':28.6,'nm':12.0,'nn':31.1}
-        elif 'veen' in s: return {'ng':27.8,'nf':31.1,'nm':12.0,'nn':31.1}
-        else: return {'ng':28.0,'nf':28.0,'nm':12.0,'nn':31.1}
+        if 'klei' in s:   return {'ng':28.2,'nf':31.6,'nm':12.0,'nn_gs':24.7,'nn_fg':30.2} 
+        elif 'zand' in s: return {'ng':28.6,'nf':32.0,'nm':12.0,'nn_gs':25.1,'nn_fg':30.2}
+        elif 'veen' in s: return {'ng':27.8,'nf':31.1,'nm':12.0,'nn_gs':24.5,'nn_fg':30.2}
+        else:             return {'ng':28.2,'nf':31.6,'nm':12.0,'nn_gs':24.7,'nn_fg':30.2}
+        
     def _vre(self, ds, cpg, ft):
         cp = cpg; cps = np.where(cp>0, cp, 1.0)
         if ft=='grass_fresh': v = (0.931*cp-43.2)/cps
@@ -303,33 +352,50 @@ class NitrogenIntakeCalculator:
         else: v = 0.0
         v = np.clip(v, 0, 1)
         return ds*(v*cp)/1000.0
+        
     def run_nutrient_calculation(self):
         print(f"\n{'='*70}\nMODULE 2.3: N Intake\n{'='*70}")
         sn = self.df['Soil_Type'].apply(self._soil_N).tolist()
+        
         self.df['N_cont_fresh_soil'] = [d['nf'] for d in sn]
         self.df['N_cont_gs_soil'] = [d['ng'] for d in sn]
         self.df['N_cont_ms_soil'] = [d['nm'] for d in sn]
-        self.df['N_cont_nat_soil'] = [d['nn'] for d in sn]
+        self.df['N_cont_nat_gs'] = [d['nn_gs'] for d in sn]
+        self.df['N_cont_nat_fg'] = [d['nn_fg'] for d in sn]
+        
         pn = self.df['NatureGL%'].clip(0,100)
-        self.df['N_cont_fresh_weighted'] = ((100-pn)*self.df['N_cont_fresh_soil']+pn*self.df['N_cont_nat_soil'])/100
+        self.df['N_cont_fresh_weighted'] = ((100-pn)*self.df['N_cont_fresh_soil'] + pn*self.df['N_cont_nat_fg'])/100
+        self.df['N_cont_gs_weighted'] = ((100-pn)*self.df['N_cont_gs_soil'] + pn*self.df['N_cont_nat_gs'])/100
+        
         self.df = ensure_numeric(self.df, 'N_Concentrate', 27.3)
         self.df['N_Concentrate'] = self.df['N_Concentrate'].replace(0, 27.3)
-        vgw = self.df['vem_grass_weighted']; vmc = self.df['vem_maize']; vc = self.df['VEM_Concentrate'].replace(0, 940.0)
+        
+        # --- NEW: Retrieve both separated VEM weights ---
+        vfgw = self.df['vem_fg_weighted'] 
+        vgsw = self.df['vem_gs_weighted']
+        vmc = self.df['vem_maize']
+        vc = self.df['VEM_Concentrate'].replace(0, 940.0)
+        
         n_milk_ds = (self.df['Pro%']*10.0/self.DSW)/self.FD
+        
         for sfx,fg,gs,ms,cc in [
             ('cow','kVEM_Intake_FreshGrass_Cow','kVEM_Intake_GrassSilage_Cow','kVEM_Intake_MaizeSilage_Cow','kVEM_Intake_Conc_Cow'),
             ('pink','kVEM_Intake_FreshGrass_Pink','kVEM_Intake_GrassSilage_Pink','kVEM_Intake_MaizeSilage_Pink','kVEM_Intake_Conc_Pink'),
             ('kalf','kVEM_Intake_FreshGrass_Kalf','kVEM_Intake_GrassSilage_Kalf','kVEM_Intake_MaizeSilage_Kalf','kVEM_Intake_Conc_Kalf')]:
-            self.df[f'DS_fresh_{sfx}'] = (self.df[fg]*1000/vgw).fillna(0)
-            self.df[f'DS_gs_{sfx}'] = (self.df[gs]*1000/vgw).fillna(0)
+            
+            # --- NEW: Use vfgw (fresh grass VEM) and vgsw (grass silage VEM) appropriately ---
+            self.df[f'DS_fresh_{sfx}'] = (self.df[fg]*1000/vfgw).fillna(0)
+            self.df[f'DS_gs_{sfx}'] = (self.df[gs]*1000/vgsw).fillna(0)
             self.df[f'DS_ms_{sfx}'] = (self.df[ms]*1000/vmc.replace(0,np.nan)).fillna(0)
             self.df[f'DS_conc_{sfx}'] = (self.df[cc]*1000/vc.replace(0,np.nan)).fillna(0)
+            
         self.df['DS_milk_kalf'] = self.df['Vol_WholeMilk_Kalf']*self.DSW
         self.df['DS_kunst_kalf'] = self.df['Vol_KunstMelk_Kalf']*self.DSK
+        
         for sfx in ('cow','pink','kalf'):
             lbl = sfx.capitalize()
             feeds = [(f'DS_fresh_{sfx}','N_cont_fresh_weighted','grass_fresh',False),
-                     (f'DS_gs_{sfx}','N_cont_gs_soil','grass_silage',False),
+                     (f'DS_gs_{sfx}','N_cont_gs_weighted','grass_silage',False), 
                      (f'DS_ms_{sfx}','N_cont_ms_soil','maize_silage',False),
                      (f'DS_conc_{sfx}','N_Concentrate','concentrate',False)]
             if sfx=='kalf':
@@ -345,6 +411,7 @@ class NitrogenIntakeCalculator:
             self.df[f'Total_N_Intake_{lbl}'] = tn
             self.df[f'Total_CP_Intake_{lbl}'] = tcp
             self.df[f'Total_VRE_Intake_{lbl}'] = tvre
+            
         for l in ('Cow','Pink','Kalf'):
             self.df[f'VCRE_Factor_{l}'] = (self.df[f'Total_VRE_Intake_{l}']/self.df[f'Total_CP_Intake_{l}'].replace(0,np.nan)).fillna(0)
         tvf = sum(self.df[f'Total_VRE_Intake_{l}'] for l in ('Cow','Pink','Kalf'))
@@ -352,8 +419,8 @@ class NitrogenIntakeCalculator:
         self.df['VCRE_Factor_Farm'] = (tvf/tcf.replace(0,np.nan)).fillna(0)
         self.df['Total_N_Intake_Farm'] = sum(self.df[f'Total_N_Intake_{l}'] for l in ('Cow','Pink','Kalf'))
         print(f"  ✓ 2.3 done — Farm1 N intake: {self.df['Total_N_Intake_Farm'].iloc[0]:.1f}")
-        return self.df
-
+        return self.df    
+    
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 2.4 — N Excretion (VCRE)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -773,11 +840,11 @@ class ApplicationEmissionCalculator:
         self.df['EF_Fertiliser_%'] = cleaned_fert_forms.map(self.EF_FERTILISER).fillna(0.0)
 
         # Manure Application EF (Grassland)
-        tech_grass = self.df.get('App_Tech_Grass', pd.Series('zodebemester', index=self.df.index))
+        tech_grass = self.df.get('AM_Grassland', pd.Series('zodebemester', index=self.df.index))
         self.df['EF_Manure_Grass_%'] = tech_grass.apply(self._clean_string).map(self.EF_MANURE_GRASS).fillna(17.0)
         
         # Manure Application EF (Arable/Cropland)
-        tech_arable = self.df.get('App_Tech_Arable', pd.Series('ondiepeinjectie', index=self.df.index))
+        tech_arable = self.df.get('AM_Cropland', pd.Series('ondiepeinjectie', index=self.df.index))
         self.df['EF_Manure_Arable_%'] = tech_arable.apply(self._clean_string).map(self.EF_MANURE_ARABLE).fillna(24.0)
 
         # ---------------------------------------------------------
@@ -923,7 +990,7 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 if __name__ == '__main__':
     # If you want hard paths, edit here:
-    INPUT = '/Users/shuaij/Desktop/InputREMAS.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_REMAS_Complete.xlsx'
+    INPUT = '/Users/shuaij/Desktop/1703 DMS data for sensitivity.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_0317.xlsx'
     run_pipeline(INPUT, OUTPUT)
     
