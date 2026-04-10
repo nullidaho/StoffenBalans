@@ -510,6 +510,12 @@ class NitrogenIntakeCalculator:
             # Combine Grazing Fresh Grass and Cut Fresh Grass into a total
             self.df[f'DS_fresh_total_{sx}'] = self.df[f'DS_fresh_{sx}'] + self.df[f'DS_cut_grass_{sx}']
 
+            sfx_cap = sx.capitalize()
+            self.df[f'kVEM_Intake_GrassSilage_{sfx_cap}'] = self.df[f'DS_gs_{sx}'] * v_gs / 1000.0
+            self.df[f'kVEM_Intake_MaizeSilage_{sfx_cap}'] = self.df[f'DS_ms_{sx}'] * v_ms / 1000.0
+            self.df[f'kVEM_Intake_Conc_{sfx_cap}'] = self.df[f'DS_conc_{sx}'] * v_cc / 1000.0
+            self.df[f'kVEM_Intake_CutGrass_{sfx_cap}'] = self.df[f'DS_cut_grass_{sx}'] * v_fg / 1000.0
+          
         # ----------------------------------------------------------------------------------
         # 9. Calculate Nutrients (N, CP, VRE)
         # ----------------------------------------------------------------------------------
