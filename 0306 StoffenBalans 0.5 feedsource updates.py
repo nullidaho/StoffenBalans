@@ -1215,4 +1215,57 @@ class ApplicationEmissionCalculator:
 
         print(f"  ✓ 4.3 Application Emissions Calculated")
         print(f"      Farm GVE: {self.df['Total_GVE_Farm'].iloc[0]:.1f}, Total NH3/GVE (VCRE): {self.df['NH3_Emission_per_GVE_VCRE'].iloc[0]:.1f} kg")
-        return self.df    
+        return self.df   
+     
+def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complete.xlsx', SHEET='Main input'):
+    # ── 1.1 Load + manure totals
+    m11 = FarmManureCalculator(INPUT_PATH, SHEET)
+    df = m11.load_and_clean()
+    m11.df = df
+    df = m11.calculate_totals()
+
+    # ── 1.2 MUN partitioning (kept for comparison / dependencies)
+    df = NitrogenPartitioningCalculator(df).calculate_partitioning()
+
+    # ── 2.1 VEM requirements
+    df = VEMRequirementCalculator(df).calculate_requirements()
+
+    # ── 2.2 VEM allocation
+    df = VEMAllocationCalculator(df).run_allocation()
+
+    # ── 2.3 N intake
+    df = NitrogenIntakeCalculator(df).run_nutrient_calculation()
+
+    # ── 2.4 VCRE excretion
+    df = NitrogenExcretionCalculatorVCRE(df).calculate_excretion()
+
+    # ── 2.5 VCRE partitioning
+    df = NitrogenPartitioningVCRE(df).calculate_partitioning()
+
+    # ── 3.1 mineralization
+    df = MineralizationCalculator(df).calculate_mineralization()
+
+    # ── 3.2 corrected TAN
+    df = CorrectedTANCalculator(df).calculate_corrected_tan()
+
+    # ── 4.1 emissions during stable, grazing, storage
+    df = EmissionCalculator(df).calculate_emissions()
+
+    # ── 4.2 land application (VCRE)
+    df = LandApplicationCalculator(df).calculate_land_application()
+    
+    # ── 4.3 Application Emission
+    df = ApplicationEmissionCalculator(df).run_application_emission()
+
+    # Write output
+    with pd.ExcelWriter(OUTPUT_PATH, engine='openpyxl') as xl:
+        df.to_excel(xl, sheet_name='Results', index=False)
+
+    print(f"\nWROTE: {OUTPUT_PATH}")
+    return df
+
+
+if __name__ == '__main__':
+    INPUT = '/Users/shuaij/Desktop/2905 DMS data - forfataire.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_forfataire.xlsx'
+    run_pipeline(INPUT, OUTPUT)
