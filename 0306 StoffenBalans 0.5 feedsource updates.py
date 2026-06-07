@@ -1266,6 +1266,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/2905 DMS data - forfataire.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_forfataire.xlsx'
+    INPUT = '/Users/shuaij/Desktop/2905 DMS data - eigen kuilwaarden.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_eigen.xlsx'
     run_pipeline(INPUT, OUTPUT)
