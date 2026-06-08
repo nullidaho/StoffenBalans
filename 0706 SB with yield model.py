@@ -19,6 +19,11 @@
 
 import numpy as np
 import pandas as pd
+<<<<<<< HEAD
+=======
+import sys
+import traceback
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
 
 pd.options.mode.chained_assignment = None  # silence SettingWithCopyWarning
 
@@ -52,12 +57,15 @@ class FarmManureCalculator:
             raise ValueError(f"Failed to load Excel file: {e}")
 
         df.columns = df.columns.str.strip()
+<<<<<<< HEAD
         
         # 🌟 CORE FIX: Remove completely empty rows from Excel artifacts
         df = df.dropna(how='all')
         # 🌟 CORE FIX: Drop rows where the critical variable (number of cows) is missing
         if 'Nr_koe' in df.columns:
             df = df.dropna(subset=['Nr_koe'])
+=======
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
 
         numeric_targets = [
             'Nr_koe', 'Nr_pink', 'Nr_kalf', 'MilkYield', 'Fat%', 'Pro%', 'MilkUerum',
@@ -269,6 +277,7 @@ class GrasslandProductionCalculator:
         self.df = df.copy()
 
     def _compute_vellinga_model(self, utilization_mode):
+<<<<<<< HEAD
         # Fallback to avoid KeyError if input columns are missing entirely
         soil_series = self.df['Soil_Type'] if 'Soil_Type' in self.df.columns else pd.Series('zand', index=self.df.index)
         region_series = self.df['Region'] if 'Region' in self.df.columns else pd.Series('Others', index=self.df.index)
@@ -292,6 +301,23 @@ class GrasslandProductionCalculator:
                 
         is_peat = np.array([1.0 if sk == 'veen' else 0.0 for sk in soil_keys])
         is_sand = np.array([1.0 if 'zand' in sk else 0.0 for sk in soil_keys])
+=======
+        soil_lower = self.df['Soil_Type'].astype(str).str.lower().str.strip()
+        region_lower = self.df['Region'].astype(str).str.lower().str.strip()
+        
+        is_peat = np.where(soil_lower.str.contains('veen') | soil_lower.str.contains('peat'), 1.0, 0.0)
+        is_sand = np.where(soil_lower.str.contains('zand') | soil_lower.str.contains('sand'), 1.0, 0.0)
+        
+        soil_keys = []
+        for soil_str, region_str in zip(soil_lower, region_lower):
+            if 'klei' in soil_str: soil_keys.append('klei')
+            elif 'veen' in soil_str or 'peat' in soil_str: soil_keys.append('veen')
+            elif any(term in soil_str for term in ('loss', 'loes', 'löss')): soil_keys.append('loss')
+            elif 'zand' in soil_str or 'sand' in soil_str: 
+                soil_keys.append('zand_zuid' if ('zuid' in region_str or 'south' in region_str) else 'zand_nwc')
+            else: 
+                soil_keys.append('zand_nwc')
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
         
         crop_management_key = 'grasland_beweiden' if utilization_mode == 'Grazing' else 'grasland_maaien'
         nitrogen_applied_top_off = np.array([float(self.REGULATORY_TABEL_2_NORMS[crop_management_key].get(sk, 250.0)) for sk in soil_keys])
@@ -344,7 +370,11 @@ class GrasslandProductionCalculator:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+<<<<<<< HEAD
 # MODULE 2.2b — VEM Feed Allocation
+=======
+# MODULE 2.2b — VEM Feed Allocation (Reads dynamic yields from 2.2a)
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
 # ══════════════════════════════════════════════════════════════════════════════
 class VEMAllocationCalculator:
     VEM_KUNSTMELK = 1500.0
@@ -399,7 +429,11 @@ class VEMAllocationCalculator:
         for k in ('yield_ms', 'yield_nat_gs', 'yield_nat_fg', 'vem_gs_cult', 'vem_gs_nat', 'vem_fg_cult', 'vem_fg_nat', 'vem_maize'):
             self.df[k] = [d[k] for d in soil_parameters]
             
+<<<<<<< HEAD
         # 🌟 READ YIELDS DIRECTLY FROM MODULE 2.2a (Safely decoupled from static tables)
+=======
+        # 🌟 READ YIELDS FROM MODULE 2.2a
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
         self.df['yield_fg'] = self.df['Model_Yield_Grazing_kgDM']
         self.df['yield_gs'] = self.df['Model_Yield_Cutting_kgDM']
             
@@ -699,6 +733,7 @@ class NitrogenExcretionCalculatorVCRE:
         calf_n_retention_ratio = np.divide(temp_term_growth + temp_term_maintenance, growth_target_n, out=np.ones_like(growth_target_n.values, dtype=float), where=growth_target_n.values != 0)
         df['N_Retention_Kalf_VCRE'] = growth_target_n * df['Nr_kalf'] * calf_n_retention_ratio
         
+<<<<<<< HEAD
         growth_heifer_n = (n_calving_kg - n_heifer_1year_kg) * (12 / 14)
         df['N_Retention_Pink_VCRE'] = (n_birth_kg + growth_heifer_n) * df['Nr_pink']
         
@@ -1221,3 +1256,6 @@ if __name__ == '__main__':
     INPUT = '/Users/shuaij/Desktop/2905 DMS data - eigen kuilwaarden.xlsx'
     OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_eigen.xlsx'
     run_pipeline(INPUT, OUTPUT)
+=======
+        growth_heifer_n = (n_calving_kg - n_he
+>>>>>>> 36fa035844539079acc58726ce780a4912f1fc23
