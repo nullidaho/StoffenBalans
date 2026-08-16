@@ -71,7 +71,7 @@ class FarmManureCalculator:
             'Kg_KunstMelk_Kalf_0', 'Kg_KunstMelk_Kalf_B', 'Kg_KunstMelk_Kalf_t',
             'slurry%_koe', 'slurry%_kalf', 'slurry%_pink', 'NatureGL%', 'Ha_Grass', 'Ha_Mais', 
             'GD_Limited_Koe', 'GD_Combi_Koe', 'GD_Unlimited_Koe', 'GD_Unlimited_Kalf', 'GD_Unlimited_Pink',
-            'GH_Koe', 'GH_Kalf', 'GH_Pink', 'DS_Freshcut',
+            'GH_Koe', 'GH_Kalf', 'GH_Pink', 'GD_Stable_Feed',
             'DS_GrassSilage_0', 'DS_GrassSilage_B', 'DS_GrassSilage_S', 'DS_GrassSilage_t',
             'DS_MaizeSilage_0', 'DS_MaizeSilage_B', 'DS_MaizeSilage_S', 'DS_MaizeSilage_t',
             'DS_OtherSilage1_0', 'DS_OtherSilage1_B', 'DS_OtherSilage1_S', 'DS_OtherSilage1_t',
@@ -97,8 +97,12 @@ class FarmManureCalculator:
             else:
                 if 'slurry%' in col: df[col] = 1.0
                 else: df[col] = 0.0
-
+        if 'Fresh_Grass_Cut' in df.columns:
+            df['Fresh_Grass_Cut'] = df['Fresh_Grass_Cut'].astype(str).str.lower().str.strip()
+        else:
+            df['Fresh_Grass_Cut'] = 'none'
         return df
+
 
     def calculate_totals(self):
         if self.df is None: raise ValueError("Call load_and_clean() first")
@@ -304,6 +308,8 @@ class VEMRequirementCalculator:
         fpcm_yearly = (0.337 + 0.116 * fat_pct + 0.06 * protein_pct) * self.df['MilkYield'] * 365.0 
         fpcm_daily_lactating = fpcm_yearly / lactation_days
         
+        self.df['FPCM_Yearly'] = fpcm_yearly
+        
         # Conversion factor for lactating cows based on daily yield
         conversion_factor_lactation = 1.0 + (fpcm_daily_lactating - 15.0) * 0.00165
         
@@ -404,11 +410,8 @@ class VEMAllocationCalculator:
         self.df['DS_Byproducts_Total'] = sum((self.df[f'DS_Byproducts{i}_0'] + self.df[f'DS_Byproducts{i}_B'] - self.df[f'DS_Byproducts{i}_S'] - self.df[f'DS_Byproducts{i}_t']) for i in [1,2,3]).clip(lower=0)
         self.df['DS_OtherSilage_Total'] = sum((self.df[f'DS_OtherSilage{i}_0'] + self.df[f'DS_OtherSilage{i}_B'] - self.df[f'DS_OtherSilage{i}_S'] - self.df[f'DS_OtherSilage{i}_t']) for i in [1,2,3]).clip(lower=0)
         
-        self.df['DS_CutGrass_Total'] = self.df.get('DS_Freshcut', pd.Series(0, index=self.df.index)) 
-        
         # --- 2. Soil logic and weighted VEM ---
         soil_parameters = self.df['Soil_Type'].apply(self._soil_p).tolist()
-        
         for k in ('yield_gs','yield_fg','yield_ms','yield_nat_gs','yield_nat_fg',
                   'vem_gs_cult','vem_gs_nat','vem_fg_cult','vem_fg_nat','vem_maize'):
             self.df[k] = [d[k] for d in soil_parameters]
@@ -502,16 +505,50 @@ class VEMAllocationCalculator:
         total_grazing_days = self.df['GD_Limited_Koe'] + self.df['GD_Combi_Koe'] + self.df['GD_Unlimited_Koe'] 
         
         fpcm_yearly = (0.337 + 0.116 * self.df['Fat%'] + 0.06 * self.df['Pro%']) * self.df['MilkYield'] * 365
+        self.df['FPCM_Yearly'] = fpcm_yearly
+        
         milk_correction_factor = 1.0 + ((fpcm_yearly - 9500 * self.df['breed_factor']) / 500) * 0.02
         lactating_fraction = (365 - 39) / 365
         
+        self.df['milk_factor'] = milk_correction_factor
+        
+        # --- Summer Stable Feeding (Zomerstalvoedering / Freshcut) ---
+        # Determine virtual grazing hours for stable feeding safely
+        fresh_cut_series = self.df.get('Fresh_Grass_Cut', pd.Series('none', index=self.df.index)).astype(str).str.lower()
+        
+        # Match 'unlimited' or Dutch 'onbeperkt'
+        is_unlimited_cut = fresh_cut_series.str.contains('unlimit', na=False, regex=True)
+        # Match 'limited' or Dutch 'beperkt', ensuring it's not actually 'unlimited'
+        is_limited_cut = fresh_cut_series.str.contains('limit', na=False, regex=True) & ~is_unlimited_cut
+        
+        # If they have GD_Stable_Feed > 0 but the text is missing/unrecognized, fallback to 'limited' (9 hours)
+        has_stable_feed_days = self.df['GD_Stable_Feed'] > 0
+        fallback_cut = has_stable_feed_days & ~is_unlimited_cut & ~is_limited_cut
+        
+        stable_weide_uren = pd.Series(0.0, index=self.df.index)
+        stable_weide_uren = np.where(is_unlimited_cut, 20.0, stable_weide_uren)
+        stable_weide_uren = np.where(is_limited_cut, 9.0, stable_weide_uren)
+        stable_weide_uren = np.where(fallback_cut, 9.0, stable_weide_uren) # Fallback if data is missing
+        
+        vem_fg = self.df.get('vem_fg_weighted', self.df.get('VEM_fgrass', pd.Series(960.0, index=self.df.index)))
+        if isinstance(vem_fg, pd.Series):
+            vem_fg = vem_fg.replace(0.0, 960.0).fillna(960.0)
+            
+        # kVEM-opname = (dagen) * ((2 + 0.75 * (weide-uren/dag - 2)) * melkfactor * 0.87) * aantal_koeien * (VEM / 1000)
+        summer_stable_intake_rate = np.where(stable_weide_uren > 2, 2.0 + 0.75 * (stable_weide_uren - 2.0), stable_weide_uren)
+        
+        kVEM_CutGrass = self.df['GD_Stable_Feed'] * (summer_stable_intake_rate * milk_correction_factor * self.df['breed_factor'] * 0.87) * self.df['Nr_koe'] * (vem_fg / 1000.0)
+        
+        # Store for reference
+        self.df['kVEM_Intake_CutGrass_Cow'] = kVEM_CutGrass
+        
         # Total Fresh Grass Pool = Cow physical grazing + Young stock grazing + Cut Grass
-        cow_grazing_vem = total_grazing_days * grass_intake_rate * (self.df['vem_fg_weighted'] / 1000) * lactating_fraction * milk_correction_factor * self.df['breed_factor'] * self.df['Nr_koe']
-        kVEM_CutGrass = self.df['DS_CutGrass_Total'] * (1 - self.Loss_Others) * (self.df['vem_fg_weighted'] / 1000)
-        total_grazing_vem = cow_grazing_vem + self.df['kVEM_Intake_FreshGrass_Pink'] + self.df['kVEM_Intake_FreshGrass_Kalf'] + kVEM_CutGrass
+        cow_grazing_vem = total_grazing_days * grass_intake_rate * (vem_fg / 1000) * lactating_fraction * milk_correction_factor * self.df['breed_factor'] * self.df['Nr_koe']
+        total_grazing_vem = cow_grazing_vem + self.df.get('kVEM_Intake_FreshGrass_Pink', 0) + self.df.get('kVEM_Intake_FreshGrass_Kalf', 0) + kVEM_CutGrass
         
         # Land used for Fresh Grass
-        total_field_required = total_grazing_vem / (self.df['vem_fg_weighted'] / 1000).replace(0, np.nan)
+        total_field_required = total_grazing_vem / (vem_fg / 1000).replace(0, np.nan)
+        
         hectares_fresh_grass_needed = (total_field_required / self.df['yield_fg_weighted'].replace(0, np.nan)).fillna(0)
         hectares_available_for_grass_silage = (self.df['Ha_Grass'] - hectares_fresh_grass_needed).clip(lower=0)
         
@@ -1432,6 +1469,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/0730 DMS data.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_for1.xlsx'
+    INPUT = '/Users/shuaij/Desktop/0814 DMS data eigen.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_eigen144.xlsx'
     run_pipeline(INPUT, OUTPUT)
