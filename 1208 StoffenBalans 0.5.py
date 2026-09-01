@@ -33,8 +33,8 @@ class FarmManureCalculator:
     CF_slurry = 0.86 #Net to gross excretion
     CF_solid = 0.61 #Net to gross excretion
     
-    def __init__(self, input_filepath, sheet_name='Main input'):
-        self.input_filepath = input_filepath
+    def __init__(self, filepath, sheet_name='Main input'):
+        self.filepath = filepath
         self.sheet_name = sheet_name
         self.df = None
 
@@ -82,10 +82,6 @@ class FarmManureCalculator:
             else:
                 if 'slurry%' in col: df[col] = 1.0
                 else: df[col] = 0.0
-        if 'Fresh_Grass_Cut' in df.columns:
-            df['Fresh_Grass_Cut'] = df['Fresh_Grass_Cut'].astype(str).str.lower().str.strip()
-        else:
-            df['Fresh_Grass_Cut'] = 'none'
         return df
 
 
