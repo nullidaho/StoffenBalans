@@ -26,7 +26,7 @@ import pandas as pd
 import sys
 import traceback
 
-pd.options.mode.chained_assignment = None  # silence SettingWithCopyWarning
+
 
 def ensure_numeric(df, col, default=0.0):
     if col in df.columns:
@@ -48,10 +48,6 @@ class FarmManureCalculator:
         self.input_filepath = input_filepath
         self.sheet_name = sheet_name
         self.df = None
-
-    def __init__(self, filepath, sheet_name='Main input'):
-        self.filepath = filepath
-        self.sheet_name = sheet_name
 
     def load_and_clean(self):
         print(f"--- Loading data from: {self.filepath} ---")
