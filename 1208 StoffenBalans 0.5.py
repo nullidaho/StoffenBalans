@@ -26,17 +26,6 @@ import pandas as pd
 import sys
 import traceback
 
-
-
-def ensure_numeric(df, col, default=0.0):
-    if col in df.columns:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace(',', '.', regex=False).str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
-    else:
-        df[col] = default
-    return df
-
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 1.1 — Manure Volume & N Excretion
 # ══════════════════════════════════════════════════════════════════════════════
