@@ -354,8 +354,8 @@ class VEMRequirementCalculator:
 # MODULE 2.2 — VEM Allocation (Restored BEX Ratio Logic + Dynamic Inventory)
 # ══════════════════════════════════════════════════════════════════════════════
 class VEMAllocationCalculator:
-    VEM_KuntsMelk = 1500.0
-    Concentrate_DS_Conversion = 0.876
+    VEM_KuntsMelk = 1530.0
+    Concentrate_DS_Conversion = 0.88
     Loss_Milk = 0.02
     Loss_Kuntsmelk = 0.02
     Loss_Concentrate = 0.02
@@ -472,7 +472,7 @@ class VEMAllocationCalculator:
         # --- 4. Young Stock Allocation ---
         vmd = self._milk_vem()
         self.df['kVEM_Intake_Milk_Kalf'] = self.df['Kg_WholeMilk_Kalf'] * (1 - self.Loss_Milk) * vmd / 1000
-        self.df['kVEM_Intake_KunstMelk_Kalf'] = self.df['Kg_KunstMelk_Kalf'] * (1 - self.Loss_Kuntsmelk) * self.VEM_KuntsMelk / 1000
+        self.df['kVEM_Intake_KunstMelk_Kalf'] = self.df['Kg_KunstMelk_Kalf'] * 0.964 * (1 - self.Loss_Kuntsmelk) * self.VEM_KuntsMelk / 1000
         
         ratio_grazing_kalf = (self.df['GD_Unlimited_Kalf'] / 365).clip(0, 1)
         ratio_grazing_pink = (self.df['GD_Unlimited_Pink'] / 365).clip(0, 1)
@@ -987,7 +987,6 @@ class MineralizationCalculator:
         print(f"  ✓ 3.1 done — Mineralization MUN: {df['Total_Net_Mineralization_MUN'].iloc[0]:.2f}, VCRE: {df['Total_Net_Mineralization_VCRE'].iloc[0]:.2f}")
         return df
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 3.2 — Corrected Total Ammoniacal Nitrogen (TAN) Calculations
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1018,7 +1017,7 @@ class CorrectedTANCalculator:
         return df
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODULE 4.1 — Ammonia Emissions (KringloopWijzer 2025 Compliant)
+# MODULE 4.1 — Ammonia Emissions (Stable/ Storage/ Grazing)
 # ══════════════════════════════════════════════════════════════════════════════
 class EmissionCalculator:
     # Standard emission factors (based on HA1.100 as reference)
@@ -1039,7 +1038,7 @@ class EmissionCalculator:
         self.df = df.copy()
         
     def calculate_emissions(self):
-        print(f"\n{'='*70}\nMODULE 4.1: Ammonia Emissions (KringloopWijzer 2025 Compliant)\n{'='*70}")
+        print(f"\n{'='*70}\nMODULE 4.1: Ammonia Emissions (Stable/ Storage/ Grazing)\n{'='*70}")
         df = self.df
         
         # Dynamic Stable Correction Factor (x / 13.0)
@@ -1137,6 +1136,7 @@ class EmissionCalculator:
 # MODULE 4.2 — Land Application Limits (VCRE-based, Dutch RVO Regulatory Rules)
 # ══════════════════════════════════════════════════════════════════════════════
 class LandApplicationCalculator:
+    # Norm 2026, not NV_gebied area.
     TABEL_2_NITROGEN_USE_NORMS = {
         'grasland_beweiden':        {'klei': 345, 'zand_nwc': 250, 'zand_zuid': 250, 'loss': 250, 'veen': 265},
         'grasland_maaien':          {'klei': 385, 'zand_nwc': 320, 'zand_zuid': 320, 'loss': 320, 'veen': 300},
@@ -1359,6 +1359,8 @@ class ApplicationEmissionCalculator:
         net_tan_pool_after_indoor_losses_mun = (corrected_tan_mun - (indoor_emissions_total_mun * self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3)).clip(lower=0)
         net_tan_pool_after_indoor_losses_vcre = (corrected_tan_vcre - (indoor_emissions_total_vcre * self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3)).clip(lower=0)
         
+        self.df['Net_TAN_Pool_After_Indoor_Losses_VCRE'] = net_tan_pool_after_indoor_losses_vcre
+        
         average_net_tan_pool = (net_tan_pool_after_indoor_losses_mun + net_tan_pool_after_indoor_losses_vcre) / 2.0
         self.df['Avg_Net_TAN_Excreted'] = average_net_tan_pool
         
@@ -1470,5 +1472,5 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 if __name__ == '__main__':
     INPUT = '/Users/shuaij/Desktop/0814 DMS data eigen.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_DMS_Complete_eigen144.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_field2.xlsx'
     run_pipeline(INPUT, OUTPUT)
