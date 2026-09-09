@@ -1,5 +1,6 @@
 # ==============================================================================
-# REMAS — Complete Integrated Calculation Pipeline 
+# REMAS — Complete Integrated Calculation Pipeline (With Snelstal Model)
+
 # ==============================================================================
 # Modules:
 #   1.1  FarmManureCalculator              Manure Volume & Net/Gross N Excretion
@@ -15,12 +16,9 @@
 #   4.2  LandApplicationCalculator         N limits, Manure & Fertiliser
 #.  4.3  ApplicationEmissionCalculator      N residue, application emisisons
 # ==============================================================================
-#
-# INPUT:  InputREMAS.xlsx  (sheet 'Main input')
-# OUTPUT: Output_REMAS_Complete.xlsx
-#
-# ==============================================================================
 
+# ==============================================================================
+import random
 import numpy as np
 import pandas as pd
 import sys
@@ -56,7 +54,6 @@ class FarmManureCalculator:
 
         df.columns = df.columns.str.strip()
 
-        # Added all new inventory and nutrient override columns to numeric_targets
         numeric_targets = [
             'Nr_koe', 'Nr_pink', 'Nr_kalf', 'MilkYield', 'Fat%', 'Pro%', 'MilkUerum',
             'slurry_koe', 'solid_koe', 'slurry_kalf', 'solid_kalf', 'slurry_pink', 'solid_pink',
@@ -80,7 +77,10 @@ class FarmManureCalculator:
             'N_Byproducts1', 'N_Byproducts2', 'N_Byproducts3', 'N_Concentrate1', 'N_Concentrate2', 'N_Concentrate3',
             'VEM_fgrass', 'VEM_GrassSilage', 'VEM_MaizeSilage', 'VEM_OtherSilage1', 'VEM_OtherSilage2', 'VEM_OtherSilage3',
             'VEM_Byproducts1', 'VEM_Byproducts2', 'VEM_Byproducts3', 'VEM_Concentrate1', 'VEM_Concentrate2', 'VEM_Concentrate3',
-            'DS_GrassSilage_Aanleg_Total', 'DS_MaizeSilage_Aanleg_Total', 'RAV_NH3_kg'
+            'DS_GrassSilage_Aanleg_Total', 'DS_MaizeSilage_Aanleg_Total', 'RAV_NH3_kg',
+            # Added Snelstal optional inputs
+            'Walking_Area_m2', 'Pit_Area_m2', 'UUN_Override_g_l', 'Puddle_Area_m2', 'Puddle_Depth_mm', 
+            'Floor_pH', 'Temp_Floor_C', 'AirSpeed_Floor_ms', 'Temp_Pit_C', 'AirSpeed_Pit_ms', 'Pit_pH'
         ]
 
         print("--- Cleaning Data (Fixing Comma/Dot issues) ---")
@@ -102,13 +102,9 @@ class FarmManureCalculator:
         df['total_grazing_days_cow'] = df['GD_Limited_Koe'] + df['GD_Combi_Koe'] + df['GD_Unlimited_Koe']
         df['grazing_days_frac_cow'] = (df['total_grazing_days_cow'] / 365.0).clip(0, 1)
         df['grazing_hours_frac_cow'] = (df['GH_Koe'] / 24.0).clip(0, 1)
-        
-        # NEW: Explicitly calculate grazing time fraction (time spent on pasture)
         df['grazing_time_frac_cow'] = df['grazing_days_frac_cow'] * df['grazing_hours_frac_cow']
         df['indoor_frac_cow'] = 1.0 - df['grazing_time_frac_cow']
-        
         df['indoor_stay_during_grazing_cow'] = 1.0 - df['grazing_hours_frac_cow']
-        # BEX grazing reduction factor (avoid division by zero)
         df['grazing_reduction_cow'] = np.where(df['indoor_stay_during_grazing_cow'] > 0, 
                                                (1.0 - 0.0261 * df['GH_Koe']) / df['indoor_stay_during_grazing_cow'], 
                                                1.0).clip(min=0)
@@ -118,7 +114,6 @@ class FarmManureCalculator:
         df['grazing_hours_frac_pink'] = (df['GH_Pink'] / 24.0).clip(0, 1)
         df['grazing_time_frac_pink'] = df['grazing_days_frac_pink'] * df['grazing_hours_frac_pink']
         df['indoor_frac_pink'] = 1.0 - df['grazing_time_frac_pink']
-        
         df['indoor_stay_during_grazing_pink'] = 1.0 - df['grazing_hours_frac_pink']
         df['grazing_reduction_pink'] = np.where(df['indoor_stay_during_grazing_pink'] > 0, 
                                                 (1.0 - 0.0261 * df['GH_Pink']) / df['indoor_stay_during_grazing_pink'], 
@@ -129,19 +124,16 @@ class FarmManureCalculator:
         df['grazing_hours_frac_kalf'] = (df['GH_Kalf'] / 24.0).clip(0, 1)
         df['grazing_time_frac_kalf'] = df['grazing_days_frac_kalf'] * df['grazing_hours_frac_kalf']
         df['indoor_frac_kalf'] = 1.0 - df['grazing_time_frac_kalf']
-        
         df['indoor_stay_during_grazing_kalf'] = 1.0 - df['grazing_hours_frac_kalf']
         df['grazing_reduction_kalf'] = np.where(df['indoor_stay_during_grazing_kalf'] > 0, 
                                                 (1.0 - 0.0261 * df['GH_Kalf']) / df['indoor_stay_during_grazing_kalf'], 
                                                 1.0).clip(min=0)
-
 
         # --- CALCULATE MANURE VOLUMES ---
         sk, fk = df['slurry%_koe'], 1.0 - df['slurry%_koe']
         sc, fc = df['slurry%_kalf'], 1.0 - df['slurry%_kalf']
         sp, fp = df['slurry%_pink'], 1.0 - df['slurry%_pink']
         
-        # 1. INDOOR Volumes (Collected in Stable)
         df['vol_koe_slurry'] = df['Nr_koe'] * sk * df['volume_slurry_koe'] * df['indoor_frac_cow']
         df['vol_koe_solid'] = df['Nr_koe'] * fk * df['volume_solid_koe'] * df['indoor_frac_cow']
         df['vol_kalf_slurry'] = df['Nr_kalf'] * sc * df['volume_slurry_kalf'] * df['indoor_frac_kalf']
@@ -153,7 +145,6 @@ class FarmManureCalculator:
                                         df['vol_kalf_slurry'] + df['vol_kalf_solid'] + 
                                         df['vol_pink_slurry'] + df['vol_pink_solid'])
         
-        # 2. GRAZING Volumes (Deposited on Pasture)
         df['vol_grazing_koe_slurry'] = df['Nr_koe'] * sk * df['volume_slurry_koe'] * df['grazing_time_frac_cow']
         df['vol_grazing_koe_solid'] = df['Nr_koe'] * fk * df['volume_solid_koe'] * df['grazing_time_frac_cow']
         df['vol_grazing_kalf_slurry'] = df['Nr_kalf'] * sc * df['volume_slurry_kalf'] * df['grazing_time_frac_kalf']
@@ -166,7 +157,6 @@ class FarmManureCalculator:
                                          df['vol_grazing_pink_slurry'] + df['vol_grazing_pink_solid'])
             
         # --- CALCULATE NET N EXCRETION ---
-        # 1. INDOOR Net N (Collected)
         df['net_n_koe_slurry'] = df['Nr_koe'] * sk * df['slurry_koe'] * df['indoor_frac_cow']
         df['net_n_koe_solid'] = df['Nr_koe'] * fk * df['solid_koe'] * df['indoor_frac_cow']
         df['net_n_cows'] = df['net_n_koe_slurry'] + df['net_n_koe_solid']
@@ -181,7 +171,6 @@ class FarmManureCalculator:
         
         df['Total_Net_Nitrogen_kg'] = df['net_n_cows'] + df['net_n_calves'] + df['net_n_heifers']
         
-        # 2. GRAZING Net N (Deposited on pasture)
         df['net_n_grazing_koe_slurry'] = df['Nr_koe'] * sk * df['slurry_koe'] * df['grazing_time_frac_cow']
         df['net_n_grazing_koe_solid'] = df['Nr_koe'] * fk * df['solid_koe'] * df['grazing_time_frac_cow']
         df['net_n_grazing_cows'] = df['net_n_grazing_koe_slurry'] + df['net_n_grazing_koe_solid']
@@ -196,15 +185,13 @@ class FarmManureCalculator:
         
         df['Total_Grazing_Net_Nitrogen_kg'] = df['net_n_grazing_cows'] + df['net_n_grazing_calves'] + df['net_n_grazing_heifers']
         
-        # --- CALCULATE GROSS N EXCRETION (TOTAL ANNUAL) ---
-        # Note: We must NOT multiply gross N by indoor_frac here. 
-        # Total gross N is required for the entire farm's UUN/FN mass balance and application limits.
+        # --- CALCULATE GROSS N EXCRETION ---
         df['gross_n_cows_mun'] = df['Nr_koe'] * (sk * df['slurry_koe'] / self.CF_slurry + fk * df['solid_koe'] / self.CF_solid)
         df['gross_n_calves_mun'] = df['Nr_kalf'] * (sc * df['slurry_kalf'] / self.CF_slurry + fc * df['solid_kalf'] / self.CF_solid)
         df['gross_n_heifers_mun'] = df['Nr_pink'] * (sp * df['slurry_pink'] / self.CF_slurry + fp * df['solid_pink'] / self.CF_solid)
         
         df['Total_Nitrogen_Excretion_MUN'] = df['gross_n_cows_mun'] + df['gross_n_calves_mun'] + df['gross_n_heifers_mun']
-      
+       
         print(f"  ✓ 1.1 done — Farm1 Gross N (Total): {df['Total_Nitrogen_Excretion_MUN'].iloc[0]:.1f} kg | Grazing N: {df['Total_Grazing_Net_Nitrogen_kg'].iloc[0]:.1f} kg")
         return df
 
@@ -212,7 +199,6 @@ class FarmManureCalculator:
 # MODULE 1.2 — N Partitioning (MUN)
 # ══════════════════════════════════════════════════════════════════════════════
 class NitrogenPartitioningCalculator:
-    
     def __init__(self, df): self.df = df
     def calculate_partitioning(self):
         print(f"\n{'='*70}\nMODULE 1.2: N Partitioning (MUN)\n{'='*70}")
@@ -235,23 +221,18 @@ class NitrogenPartitioningCalculator:
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 2.1 — VEM Requirements
 # ══════════════════════════════════════════════════════════════════════════════
-
 class VEMRequirementCalculator:
-    
-    # 1. ADDED: __init__ method to accept the dataframe
     def __init__(self, df):
         self.df = df.copy()
         
-    # 2. ADDED: _breed method to prevent the 'self._breed()' call from failing
     def _breed(self):
         if 'breed_factor' not in self.df.columns:
-            self.df['breed_factor'] = 1.0  # Default to 1.0 (Holstein) if not provided
+            self.df['breed_factor'] = 1.0  
         if 'avg_weight' not in self.df.columns:
-            self.df['avg_weight'] = 650.0  # Default cow weight if not provided
+            self.df['avg_weight'] = 650.0  
 
     def calculate_requirements(self):
         print(f"\n{'='*70}\nMODULE 2.1: VEM Requirements\n{'='*70}")
-        
         columns_to_ensure = ['MilkYield','Fat%','Pro%','Nr_koe','Nr_pink','Nr_kalf',
                              'GD_Limited_Koe','GD_Combi_Koe','GD_Unlimited_Koe',
                              'GD_Unlimited_Kalf','GD_Unlimited_Pink']
@@ -259,83 +240,53 @@ class VEMRequirementCalculator:
             self.df = ensure_numeric(self.df, col, 0.0)
             
         self._breed()
-        
-        # Define constants for lactation and dry periods (consistent with legacy logic)
         lactation_days = 326.0
         dry_days = 39.0 
-        
-        # Extract frequently used variables
         fat_pct = self.df['Fat%']
         protein_pct = self.df['Pro%']
         breed_factor = self.df['breed_factor']
         
-        # ---------------------------------------------------------
-        # Kalf (Calves < 1 year)
-        # ---------------------------------------------------------
+        # Kalf
         vem_kalf_growth = 1323.0 * breed_factor
         vem_kalf_exercise = self.df['GD_Unlimited_Kalf'] * 0.346 * breed_factor
-        
-        # 1.02 accounts for feed processing/losses (voederverliezen/opslag)
         self.df['vem_req_kalf_per_head_yr'] = (vem_kalf_growth + vem_kalf_exercise) * 1.02
         self.df['Total_VEM_Kalf_Farm'] = self.df['vem_req_kalf_per_head_yr'] * self.df['Nr_kalf']
         
-        # ---------------------------------------------------------
-        # Pink (Heifers > 1 year)
-        # ---------------------------------------------------------
+        # Pink
         vem_pink_growth = 2259.0 * breed_factor
         vem_pink_exercise = self.df['GD_Unlimited_Pink'] * 0.784 * breed_factor
-        vem_pink_processing = 115.9 * breed_factor # Processing/Pregnancy maintenance
-        
+        vem_pink_processing = 115.9 * breed_factor 
         self.df['vem_req_pink_per_head_yr'] = (vem_pink_growth + vem_pink_exercise + vem_pink_processing) * 1.02
         self.df['Total_VEM_Pink_Farm'] = self.df['vem_req_pink_per_head_yr'] * self.df['Nr_pink']
         
-        # ---------------------------------------------------------
-        # Cow (Dairy Cows)
-        # ---------------------------------------------------------
-        # 1. Milk Production Requirements
-        # FPCM: Fat and Protein Corrected Milk
+        # Cow
         fpcm_yearly = (0.337 + 0.116 * fat_pct + 0.06 * protein_pct) * self.df['MilkYield'] * 365.0 
         fpcm_daily_lactating = fpcm_yearly / lactation_days
-        
         self.df['FPCM_Yearly'] = fpcm_yearly
         
-        # Conversion factor for lactating cows based on daily yield
         conversion_factor_lactation = 1.0 + (fpcm_daily_lactating - 15.0) * 0.00165
-        
         self.df['vem_cow_milk_yr'] = (442.0 * fpcm_daily_lactating * conversion_factor_lactation / 1000.0) * lactation_days
         
-        # 2. Maintenance Requirements (Metabolic Weight)
         metabolic_weight = np.power(self.df['avg_weight'], 0.75)
-        
-        # Maintenance during lactation
         vem_maint_lactation = 42.4 * metabolic_weight * conversion_factor_lactation * lactation_days / 1000.0
-        
-        # Maintenance during dry period (FPCM = 0)
         conversion_factor_dry = 1.0 + (-15.0 * 0.00165)
         vem_maint_dry = 42.4 * metabolic_weight * conversion_factor_dry * dry_days / 1000.0
-        
         self.df['vem_cow_maint_yr'] = vem_maint_lactation + vem_maint_dry
         
-        # 3. Exercise Requirements (Grazing)
-        # Calculate combined grazing days factor based on grazing system
         grazing_days_combined = (self.df['GD_Limited_Koe'] * 0.419 + 
                                  self.df['GD_Combi_Koe'] * 0.419 + 
                                  self.df['GD_Unlimited_Koe'] * 0.560)
-                                 
         self.df['vem_cow_exercise_yr'] = 201.0 + grazing_days_combined * (lactation_days / 365.0) * breed_factor
         
-        # 4. Growth/Youth and Pregnancy Requirements
         self.df['vem_cow_youth_yr'] = 102.0 * breed_factor
         self.df['vem_cow_preg_yr'] = 194.0 * breed_factor
         
         vem_cow_subtotal = (self.df['vem_cow_milk_yr']+self.df['vem_cow_maint_yr']+
               self.df['vem_cow_exercise_yr']+self.df['vem_cow_youth_yr']+self.df['vem_cow_preg_yr'])
-        
         self.df['vem_req_cow_per_head_yr'] = vem_cow_subtotal*1.02
-        
         self.df['Total_VEM_Cow_Farm'] = self.df['vem_req_cow_per_head_yr']*self.df['Nr_koe']
-        self.df['Total_VEM_Requirement_Farm_kVEM'] = (
-            self.df['Total_VEM_Cow_Farm']+self.df['Total_VEM_Kalf_Farm']+self.df['Total_VEM_Pink_Farm'])
+        
+        self.df['Total_VEM_Requirement_Farm_kVEM'] = (self.df['Total_VEM_Cow_Farm']+self.df['Total_VEM_Kalf_Farm']+self.df['Total_VEM_Pink_Farm'])
         print(f"  ✓ 2.1 done — Farm1 VEM: {self.df['Total_VEM_Requirement_Farm_kVEM'].iloc[0]:.0f}")
         return self.df
     
@@ -357,7 +308,6 @@ class VEMAllocationCalculator:
     
     def __init__(self, df): 
         self.df = df.copy()
-        
         self.PGK = self.Pct_Grass_Kalf
         self.PMK = self.Pct_Maize_Kalf
         self.PGP = self.Pct_Grass_Pink
@@ -385,21 +335,15 @@ class VEMAllocationCalculator:
     def run_allocation(self):
         print(f"\n{'='*70}\nMODULE 2.2: VEM Allocation (Dynamic Input Method)\n{'='*70}")
         
-        # --- 1. Calculate Aggregated Inventories & Nets ---
-        
-        # Kunstmelk
         self.df['Kg_KunstMelk_Kalf_Net'] = self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']
         self.df['Kg_KunstMelk_Kalf'] = np.where(self.df['Kg_WholeMilk_Kalf'] > 0, self.df['Kg_WholeMilk_Kalf'], self.df['Kg_KunstMelk_Kalf_Net']).clip(min=0)
         
-        # Silage Inventory Net (Opening - Closing)
         self.df['DS_GS_InvNet'] = self.df['DS_GrassSilage_0'] - self.df['DS_GrassSilage_t']
         self.df['DS_MS_InvNet'] = self.df['DS_MaizeSilage_0'] - self.df['DS_MaizeSilage_t']
         
-        # Sum up the 3 columns for Conc, Byprod, OtherSilage
         self.df['DS_Byproducts_Total'] = sum((self.df[f'DS_Byproducts{i}_0'] + self.df[f'DS_Byproducts{i}_B'] - self.df[f'DS_Byproducts{i}_S'] - self.df[f'DS_Byproducts{i}_t']) for i in [1,2,3]).clip(lower=0)
         self.df['DS_OtherSilage_Total'] = sum((self.df[f'DS_OtherSilage{i}_0'] + self.df[f'DS_OtherSilage{i}_B'] - self.df[f'DS_OtherSilage{i}_S'] - self.df[f'DS_OtherSilage{i}_t']) for i in [1,2,3]).clip(lower=0)
         
-        # --- 2. Soil logic and weighted VEM ---
         soil_parameters = self.df['Soil_Type'].apply(self._soil_p).tolist()
         for k in ('yield_gs','yield_fg','yield_ms','yield_nat_gs','yield_nat_fg',
                   'vem_gs_cult','vem_gs_nat','vem_fg_cult','vem_fg_nat','vem_maize'):
@@ -411,36 +355,28 @@ class VEMAllocationCalculator:
         self.df['yield_fg_weighted'] = ((100 - pn) * self.df['yield_fg'] + pn * self.df['yield_nat_fg']) / 100
         self.df['yield_gs_weighted'] = ((100 - pn) * self.df['yield_gs'] + pn * self.df['yield_nat_gs']) / 100
         
-        # --- DETERMINE INPUT SOURCE FOR VOLUME ALLOCATION ---
         input_source = self.df.get('Input_source_for_silage', pd.Series('Forfaitair', index=self.df.index)).astype(str).str.lower()
         is_eigen = input_source.str.contains('eigen')
         
-        # --- VEM/N SOURCE SEPARATION (EIGEN VS FORFAITAIR) ---
-        # 1. Store theoretical (fixed) values derived from soil
         vem_gs_theo = self.df['vem_gs_weighted'].copy()
         vem_ms_theo = self.df['vem_maize'].copy()
         vem_fg_theo = self.df['vem_fg_weighted'].copy()
 
-        # 2. Extract actual (measured) values from input, fallback to theo if missing
         vem_gs_actual = np.where(self.df['VEM_GrassSilage'] > 0, self.df['VEM_GrassSilage'], vem_gs_theo)
         vem_ms_actual = np.where(self.df['VEM_MaizeSilage'] > 0, self.df['VEM_MaizeSilage'], vem_ms_theo)
         vem_fg_actual = np.where(self.df['VEM_fgrass'] > 0, self.df['VEM_fgrass'], vem_fg_theo)
 
-        # 3. Apply business logic: Internal uses theoretical in Forfaitair, actual in Eigen
         self.df['vem_gs_harvest'] = np.where(is_eigen, vem_gs_actual, vem_gs_theo)
         self.df['vem_ms_harvest'] = np.where(is_eigen, vem_ms_actual, vem_ms_theo)
         self.df['vem_fg_harvest'] = np.where(is_eigen, vem_fg_actual, vem_fg_theo) 
         
-        # 4. External (Purchased) always uses actual invoices
         self.df['vem_gs_ext'] = vem_gs_actual
         self.df['vem_ms_ext'] = vem_ms_actual
         
-        # Override the base variables so Young Stock calculations use the internal (harvest) VEM
         self.df['vem_fg_weighted'] = self.df['vem_fg_harvest']
         self.df['vem_gs_weighted'] = self.df['vem_gs_harvest']
         self.df['vem_maize'] = self.df['vem_ms_harvest']
         
-        # --- 3. Calculate Total VEM Intake for the fixed/known feeds ---
         self.df['kVEM_Intake_Byproducts_Total'] = 0.0
         self.df['kVEM_Intake_OtherSilage_Total'] = 0.0
         self.df['kVEM_Intake_Conc_Total'] = 0.0
@@ -458,7 +394,6 @@ class VEMAllocationCalculator:
             self.df['kVEM_Intake_OtherSilage_Total'] += ds_os * (1 - self.Loss_Others) * vem_othersilages / 1000
             self.df['kVEM_Intake_Conc_Total'] += kg_cc * self.Concentrate_DS_Conversion * (1 - self.Loss_Concentrate) * vem_concentrate / 1000
             
-        # --- 4. Young Stock Allocation ---
         vmd = self._milk_vem()
         self.df['kVEM_Intake_Milk_Kalf'] = self.df['Kg_WholeMilk_Kalf'] * (1 - self.Loss_Milk) * vmd / 1000
         self.df['kVEM_Intake_KunstMelk_Kalf'] = self.df['Kg_KunstMelk_Kalf'] * 0.964 * (1 - self.Loss_Kuntsmelk) * self.VEM_KuntsMelk / 1000
@@ -466,18 +401,15 @@ class VEMAllocationCalculator:
         ratio_grazing_kalf = (self.df['GD_Unlimited_Kalf'] / 365).clip(0, 1)
         ratio_grazing_pink = (self.df['GD_Unlimited_Pink'] / 365).clip(0, 1)
         
-        # Concentrate rules
         self.df['kVEM_Intake_Conc_Kalf'] = self.df['Total_VEM_Kalf_Farm'] * (0.10 * ratio_grazing_kalf + 0.25 * (1 - ratio_grazing_kalf))
         self.df['kVEM_Intake_Conc_Pink'] = self.df['Total_VEM_Pink_Farm'] * (0.00 * ratio_grazing_pink + 0.05 * (1 - ratio_grazing_pink))
         
-        # Fresh grass factors
         fresh_grass_factor_kalf = ratio_grazing_kalf * (1323.0 - 101.2) + self.df['GD_Unlimited_Kalf'] * 0.346
         self.df['kVEM_Intake_FreshGrass_Kalf'] = self.df['Nr_kalf'] * fresh_grass_factor_kalf * 0.9 * self.df['breed_factor'] * 1.02 
         
         fresh_grass_factor_pink = ratio_grazing_pink * (2259.0 + 102.9) + self.df['GD_Unlimited_Pink'] * 0.784
         self.df['kVEM_Intake_FreshGrass_Pink'] = self.df['Nr_pink'] * fresh_grass_factor_pink * self.df['breed_factor'] * 1.02
         
-        # Roughage gaps (Locked in for young stock)
         roughage_kalf = (self.df['Total_VEM_Kalf_Farm'] - self.df['kVEM_Intake_Milk_Kalf'] - self.df['kVEM_Intake_KunstMelk_Kalf'] - self.df['kVEM_Intake_Conc_Kalf'] - self.df['kVEM_Intake_FreshGrass_Kalf']).clip(lower=0)
         self.df['kVEM_Intake_GrassSilage_Kalf'] = roughage_kalf * self.PGK
         self.df['kVEM_Intake_MaizeSilage_Kalf'] = roughage_kalf * self.PMK
@@ -488,7 +420,6 @@ class VEMAllocationCalculator:
         
         self.df['kVEM_Intake_Conc_Cow'] = (self.df['kVEM_Intake_Conc_Total'] - self.df['kVEM_Intake_Conc_Kalf'] - self.df['kVEM_Intake_Conc_Pink']).clip(lower=0)
 
-        # --- 5. The BEX Ratio Squeeze Pool for Roughage ---
         hrs = self.df['GH_Koe']
         grass_intake_rate = np.where(hrs > 2, 2.0 + 0.75 * (hrs - 2), hrs)
         total_grazing_days = self.df['GD_Limited_Koe'] + self.df['GD_Combi_Koe'] + self.df['GD_Unlimited_Koe'] 
@@ -501,115 +432,84 @@ class VEMAllocationCalculator:
         
         self.df['milk_factor'] = milk_correction_factor
         
-        # --- Summer Stable Feeding (Zomerstalvoedering / Freshcut) ---
-        # Determine virtual grazing hours for stable feeding safely
         fresh_cut_series = self.df.get('Fresh_Grass_Cut', pd.Series('none', index=self.df.index)).astype(str).str.lower()
-        
-        # Match 'unlimited' or Dutch 'onbeperkt'
         is_unlimited_cut = fresh_cut_series.str.contains('unlimit', na=False, regex=True)
-        # Match 'limited' or Dutch 'beperkt', ensuring it's not actually 'unlimited'
         is_limited_cut = fresh_cut_series.str.contains('limit', na=False, regex=True) & ~is_unlimited_cut
-        
-        # If they have GD_Stable_Feed > 0 but the text is missing/unrecognized, fallback to 'limited' (9 hours)
         has_stable_feed_days = self.df['GD_Stable_Feed'] > 0
         fallback_cut = has_stable_feed_days & ~is_unlimited_cut & ~is_limited_cut
         
         stable_weide_uren = pd.Series(0.0, index=self.df.index)
         stable_weide_uren = np.where(is_unlimited_cut, 20.0, stable_weide_uren)
         stable_weide_uren = np.where(is_limited_cut, 9.0, stable_weide_uren)
-        stable_weide_uren = np.where(fallback_cut, 9.0, stable_weide_uren) # Fallback if data is missing
+        stable_weide_uren = np.where(fallback_cut, 9.0, stable_weide_uren)
         
         vem_fg = self.df.get('vem_fg_weighted', self.df.get('VEM_fgrass', pd.Series(960.0, index=self.df.index)))
         if isinstance(vem_fg, pd.Series):
             vem_fg = vem_fg.replace(0.0, 960.0).fillna(960.0)
             
-        # kVEM-opname = (dagen) * ((2 + 0.75 * (weide-uren/dag - 2)) * melkfactor * 0.87) * aantal_koeien * (VEM / 1000)
         summer_stable_intake_rate = np.where(stable_weide_uren > 2, 2.0 + 0.75 * (stable_weide_uren - 2.0), stable_weide_uren)
-        
         kVEM_CutGrass = self.df['GD_Stable_Feed'] * (summer_stable_intake_rate * milk_correction_factor * self.df['breed_factor'] * 0.87) * self.df['Nr_koe'] * (vem_fg / 1000.0)
-        
-        # Store for reference
         self.df['kVEM_Intake_CutGrass_Cow'] = kVEM_CutGrass
         
-        # Total Fresh Grass Pool = Cow physical grazing + Young stock grazing + Cut Grass
         cow_grazing_vem = total_grazing_days * grass_intake_rate * (vem_fg / 1000) * lactating_fraction * milk_correction_factor * self.df['breed_factor'] * self.df['Nr_koe']
         total_grazing_vem = cow_grazing_vem + self.df.get('kVEM_Intake_FreshGrass_Pink', 0) + self.df.get('kVEM_Intake_FreshGrass_Kalf', 0) + kVEM_CutGrass
         
-        # Land used for Fresh Grass
         total_field_required = total_grazing_vem / (vem_fg / 1000).replace(0, np.nan)
-        
         hectares_fresh_grass_needed = (total_field_required / self.df['yield_fg_weighted'].replace(0, np.nan)).fillna(0)
         hectares_available_for_grass_silage = (self.df['Ha_Grass'] - hectares_fresh_grass_needed).clip(lower=0)
         
-        # ─── Dynamic Silage Harvest & Aanleg (Controlled by Input Source) ───
-        
-        # Scenario A: Forfaitair Output (Hectares * Theoretical Yield)
         harvest_gs_forfaitair = hectares_available_for_grass_silage * self.df['yield_gs_weighted']
         harvest_ms_forfaitair = self.df['Ha_Mais'] * self.df['yield_ms']
         
-        # Scenario B: Eigen Output (Back-calculated from Total Aanleg Input)
-        # Formula: Harvested Volume = Total Aanleg - Bought Volume + Sold Volume
         aanleg_gs_input = self.df.get('DS_GrassSilage_Aanleg_Total', pd.Series(0, index=self.df.index))
         aanleg_ms_input = self.df.get('DS_MaizeSilage_Aanleg_Total', pd.Series(0, index=self.df.index))
         
         harvest_gs_eigen = aanleg_gs_input - self.df['DS_GrassSilage_B'] + self.df['DS_GrassSilage_S']
         harvest_ms_eigen = aanleg_ms_input - self.df['DS_MaizeSilage_B'] + self.df['DS_MaizeSilage_S']
         
-        # Actual Harvested Volume Toggled by Input Source ('is_eigen')
         harvest_gs_actual = np.where(is_eigen, harvest_gs_eigen, harvest_gs_forfaitair)
         harvest_ms_actual = np.where(is_eigen, harvest_ms_eigen, harvest_ms_forfaitair)
         
-        # Store Actual Harvest for later ratio split
         self.df['DS_GS_Harvest_Actual'] = harvest_gs_actual
         self.df['DS_MS_Harvest_Actual'] = harvest_ms_actual
         
-        # Final Computed Aanleg (Harvest + Bought - Sold) ensures math consistency for both modes
         aanleg_gs = harvest_gs_actual + self.df['DS_GrassSilage_B'] - self.df['DS_GrassSilage_S']
         aanleg_ms = harvest_ms_actual + self.df['DS_MaizeSilage_B'] - self.df['DS_MaizeSilage_S']
         
         self.df['DS_GS_Aanleg_Actual'] = aanleg_gs
         self.df['DS_MS_Aanleg_Actual'] = aanleg_ms
         
-        # Total Silage Availability = Aanleg + (Opening - Closing Inventory)
         ds_gs_avail = (aanleg_gs + self.df['DS_GS_InvNet']).clip(lower=0)
         ds_ms_avail = (aanleg_ms + self.df['DS_MS_InvNet']).clip(lower=0)
         
-        # NEW: Calculate Total VEM Pool for Silages separating Harvested vs External qualities
         vem_gs_aanleg = (harvest_gs_actual * self.df['vem_gs_harvest'] + self.df['DS_GrassSilage_B'] * self.df['vem_gs_ext'] - self.df['DS_GrassSilage_S'] * self.df['vem_gs_ext']) / 1000
         vem_ms_aanleg = (harvest_ms_actual * self.df['vem_ms_harvest'] + self.df['DS_MaizeSilage_B'] * self.df['vem_ms_ext'] - self.df['DS_MaizeSilage_S'] * self.df['vem_ms_ext']) / 1000
         
-        # Inventory is assumed farm-produced, so we use Harvest VEM
         vem_grass_silage = (vem_gs_aanleg + (self.df['DS_GS_InvNet'] * self.df['vem_gs_harvest'] / 1000)).clip(lower=0)
         vem_maize_silage = (vem_ms_aanleg + (self.df['DS_MS_InvNet'] * self.df['vem_ms_harvest'] / 1000)).clip(lower=0)
         
-    
         self.df['pool_vem_fg'] = total_grazing_vem
         self.df['pool_vem_gs'] = vem_grass_silage
         self.df['pool_vem_ms'] = vem_maize_silage
         
-        # Calculate Ratios
         total_roughage_vem_pool = total_grazing_vem + vem_grass_silage + vem_maize_silage
         has_roughage_supply = total_roughage_vem_pool > 0
         ratio_fresh_grass = np.where(has_roughage_supply, total_grazing_vem / total_roughage_vem_pool, 0)
         ratio_grass_silage = np.where(has_roughage_supply, vem_grass_silage / total_roughage_vem_pool, 0)
         ratio_maize_silage = np.where(has_roughage_supply, vem_maize_silage / total_roughage_vem_pool, 0)
         
-        # --- 6. Calculate the remaining VEM gap for the farm ---
         remaining_roughage_vem_requirement = (self.df['Total_VEM_Cow_Farm'] + self.df['Total_VEM_Kalf_Farm'] + self.df['Total_VEM_Pink_Farm']
                - self.df['kVEM_Intake_Conc_Total']
                - self.df['kVEM_Intake_Milk_Kalf'] - self.df['kVEM_Intake_KunstMelk_Kalf']
                - self.df['kVEM_Intake_Byproducts_Total'] - self.df['kVEM_Intake_OtherSilage_Total']).clip(lower=0)
         
-        # --- 7. Apply the Ratio Squeeze and assign ALL residual strictly to Cows ---
         self.df['kVEM_Intake_FreshGrass_Cow'] = (remaining_roughage_vem_requirement * ratio_fresh_grass - self.df['kVEM_Intake_FreshGrass_Kalf'] - self.df['kVEM_Intake_FreshGrass_Pink']).clip(lower=0)
         self.df['kVEM_Intake_GrassSilage_Cow'] = (remaining_roughage_vem_requirement * ratio_grass_silage - self.df['kVEM_Intake_GrassSilage_Kalf'] - self.df['kVEM_Intake_GrassSilage_Pink']).clip(lower=0)
         self.df['kVEM_Intake_MaizeSilage_Cow'] = (remaining_roughage_vem_requirement * ratio_maize_silage  - self.df['kVEM_Intake_MaizeSilage_Kalf'] - self.df['kVEM_Intake_MaizeSilage_Pink']).clip(lower=0)
         
-        # Record Byproducts & Other Silages explicitly to cows
         self.df['kVEM_Intake_Byproducts_Cow'] = self.df['kVEM_Intake_Byproducts_Total']
         self.df['kVEM_Intake_OtherSilage_Cow'] = self.df['kVEM_Intake_OtherSilage_Total']
         
-        # --- 8. Split Cow Intake into Harvested vs. Net-Bought Source (Based on precise VEM contributions) ---
         net_bought_gs_vem = (self.df['DS_GrassSilage_B'] * self.df['vem_gs_ext'] - self.df['DS_GrassSilage_S'] * self.df['vem_gs_ext']).clip(lower=0) / 1000
         net_bought_ms_vem = (self.df['DS_MaizeSilage_B'] * self.df['vem_ms_ext'] - self.df['DS_MaizeSilage_S'] * self.df['vem_ms_ext']).clip(lower=0) / 1000
         
@@ -619,21 +519,18 @@ class VEMAllocationCalculator:
         total_aanleg_gs_vem = harvest_gs_vem + net_bought_gs_vem
         total_aanleg_ms_vem = harvest_ms_vem + net_bought_ms_vem
         
-        # If Aanleg VEM is 0, we assume the intake came from historical inventory (treated as 100% harvested)
         ratio_gs_harvested = np.where(total_aanleg_gs_vem != 0, harvest_gs_vem / total_aanleg_gs_vem, 1.0)
         ratio_gs_netbought = np.where(total_aanleg_gs_vem != 0, net_bought_gs_vem / total_aanleg_gs_vem, 0.0)
 
         ratio_ms_harvested = np.where(total_aanleg_ms_vem != 0, harvest_ms_vem / total_aanleg_ms_vem, 1.0)
         ratio_ms_netbought = np.where(total_aanleg_ms_vem != 0, net_bought_ms_vem / total_aanleg_ms_vem, 0.0)
 
-        # Apply ratios to total allocated maize/grass silage intake for cows
         self.df['kVEM_Intake_GrassSilage_Cow_Harvested'] = self.df['kVEM_Intake_GrassSilage_Cow'] * ratio_gs_harvested
         self.df['kVEM_Intake_GrassSilage_Cow_NetBought'] = self.df['kVEM_Intake_GrassSilage_Cow'] * ratio_gs_netbought
         
         self.df['kVEM_Intake_MaizeSilage_Cow_Harvested'] = self.df['kVEM_Intake_MaizeSilage_Cow'] * ratio_ms_harvested
         self.df['kVEM_Intake_MaizeSilage_Cow_NetBought'] = self.df['kVEM_Intake_MaizeSilage_Cow'] * ratio_ms_netbought
 
-        # --- 9. Final checks to ensure Mass Balance closure ---
         self.df['Total_Intake_Kalf_kVEM'] = self.df['kVEM_Intake_Milk_Kalf'] + self.df['kVEM_Intake_KunstMelk_Kalf'] + self.df['kVEM_Intake_Conc_Kalf'] + self.df['kVEM_Intake_FreshGrass_Kalf'] + self.df['kVEM_Intake_GrassSilage_Kalf'] + self.df['kVEM_Intake_MaizeSilage_Kalf']
         self.df['Total_Intake_Pink_kVEM'] = self.df['kVEM_Intake_Conc_Pink'] + self.df['kVEM_Intake_FreshGrass_Pink'] + self.df['kVEM_Intake_GrassSilage_Pink'] + self.df['kVEM_Intake_MaizeSilage_Pink']
         self.df['Total_Intake_Cow_kVEM'] = self.df['kVEM_Intake_Conc_Cow'] + self.df['kVEM_Intake_Byproducts_Cow'] + self.df['kVEM_Intake_OtherSilage_Cow'] + self.df['kVEM_Intake_FreshGrass_Cow'] + self.df['kVEM_Intake_GrassSilage_Cow'] + self.df['kVEM_Intake_MaizeSilage_Cow']
@@ -645,7 +542,7 @@ class VEMAllocationCalculator:
         return self.df
     
 # ══════════════════════════════════════════════════════════════════════════════
-# MODULE 2.3 — Nitrogen (N) Intake (Restored to Simple Dry Matter Conversion)
+# MODULE 2.3 — Nitrogen (N) Intake 
 # ══════════════════════════════════════════════════════════════════════════════
 class NitrogenIntakeCalculator:
     CONVERSION_PLANT_N_TO_CRUDE_PROTEIN = 6.25
@@ -659,7 +556,6 @@ class NitrogenIntakeCalculator:
         self.df = df.copy()
     
     def _get_soil_nitrogen_content(self, soil_type):
-        """Returns standard regional reference nitrogen content parameters per soil type."""
         soil_str = str(soil_type).lower().strip()
         if 'klei' in soil_str:   
             return {
@@ -695,7 +591,6 @@ class NitrogenIntakeCalculator:
             }
         
     def _calculate_vre_intake(self, dry_matter, crude_protein_content, feed_type):
-        """Calculates VRE (True Digestible Protein) intake based on dry matter and crude protein."""
         safe_crude_protein = np.where(crude_protein_content > 0, crude_protein_content, 1.0)
         
         if feed_type == 'grass_fresh': 
@@ -705,7 +600,6 @@ class NitrogenIntakeCalculator:
         elif feed_type == 'maize_silage': 
             vre_fraction = (0.969 * crude_protein_content + 0.04 * self.REFERENCE_ASH_CONTENT_MAIZE - 40.0) / safe_crude_protein
         elif feed_type == 'concentrate': 
-            # Note: The / 100.0 is MANDATORY. The official handbook has a typo for 'mengvoeders' but it is required mathematically.
             vre_fraction = (88.7 * (1.0 - np.exp(-0.012 * crude_protein_content))) / 100.0
         elif feed_type == 'byproduct':
             vre_fraction = (88.6 * (1.0 - np.exp(-0.012 * crude_protein_content))) / 100.0
@@ -731,7 +625,6 @@ class NitrogenIntakeCalculator:
         self.df['N_cont_fresh_weighted'] = ((100 - nature_grassland_percentage) * self.df['N_cont_fresh_soil'] + nature_grassland_percentage * self.df['N_cont_nat_fg']) / 100
         self.df['N_cont_gs_weighted'] = ((100 - nature_grassland_percentage) * self.df['N_cont_gs_soil'] + nature_grassland_percentage * self.df['N_cont_nat_gs']) / 100
         
-        # --- N OVERRIDES (ALWAYS PRIORITIZE MEASURED DATA) ---
         self.df['N_cont_fresh_weighted'] = np.where(self.df['N_fgrass'] > 0, self.df['N_fgrass'], self.df['N_cont_fresh_weighted'])
         self.df['N_cont_gs_weighted'] = np.where(self.df['N_GrassSilage'] > 0, self.df['N_GrassSilage'], self.df['N_cont_gs_weighted'])
         self.df['N_cont_ms_soil'] = np.where(self.df['N_MaizeSilage'] > 0, self.df['N_MaizeSilage'], self.df['N_cont_ms_soil'])
@@ -742,7 +635,6 @@ class NitrogenIntakeCalculator:
         
         n_content_milk_dry_matter = (self.df['Pro%'] * 10.0 / self.DRY_MATTER_WHOLE_MILK_FRACTION) / self.CONVERSION_DAIRY_N_TO_CRUDE_PROTEIN
         
-        # --- 1. Convert Allocated VEM back to Dry Matter (DS) Units ---
         for animal_category, fresh_col, silage_col, maize_col, conc_col in [
             ('cow', 'kVEM_Intake_FreshGrass_Cow', 'kVEM_Intake_GrassSilage_Cow', 'kVEM_Intake_MaizeSilage_Cow', 'kVEM_Intake_Conc_Cow'),
             ('pink', 'kVEM_Intake_FreshGrass_Pink', 'kVEM_Intake_GrassSilage_Pink', 'kVEM_Intake_MaizeSilage_Pink', 'kVEM_Intake_Conc_Pink'),
@@ -752,7 +644,6 @@ class NitrogenIntakeCalculator:
             self.df[f'DS_gs_{animal_category}'] = (self.df[silage_col] * 1000 / vem_grass_silage_weighted).fillna(0)
             self.df[f'DS_ms_{animal_category}'] = (self.df[maize_col] * 1000 / vem_maize_silage.replace(0, np.nan)).fillna(0)
             
-            # Weighted average of the 3 concentrates. Ignore 0/NaNs so we don't dilute the average.
             conc_vem = self.df[['VEM_Concentrate1', 'VEM_Concentrate2', 'VEM_Concentrate3']].replace(0, np.nan)
             concentrate_vem_average = conc_vem.mean(axis=1).fillna(940.0)
             
@@ -761,21 +652,16 @@ class NitrogenIntakeCalculator:
         self.df['DS_milk_kalf'] = self.df['Kg_WholeMilk_Kalf'] * self.DRY_MATTER_WHOLE_MILK_FRACTION
         self.df['DS_kunst_kalf'] = self.df['Kg_KunstMelk_Kalf'] * self.DRY_MATTER_MILK_REPLACER_FRACTION
         
-        # --- 2. Add Byproducts & Other Silage back to Cow's DS Pool ---
         self.df['DS_Total_Byproducts_Cow'] = self.df['DS_Byproducts_Total']
         self.df['DS_Total_OtherSilage_Cow'] = self.df['DS_OtherSilage_Total']
         
-        # FIX: Calculate average N content strictly from provided, non-zero data.
-        # This prevents an empty column (0) from dragging the average down.
         self.df['N_Byproducts_Avg'] = self.df[['N_Byproducts1', 'N_Byproducts2', 'N_Byproducts3']].replace(0, np.nan).mean(axis=1).fillna(25.0)
         self.df['N_OtherSilage_Avg'] = self.df[['N_OtherSilage1', 'N_OtherSilage2', 'N_OtherSilage3']].replace(0, np.nan).mean(axis=1).fillna(20.0)
         self.df['N_Concentrate_Avg'] = self.df[['N_Concentrate1', 'N_Concentrate2', 'N_Concentrate3']].replace(0, np.nan).mean(axis=1).fillna(27.3)
         
-        # --- 3. Calculate Final Nutrient Aggregates (N, CP, VRE) ---
         for animal_category in ('cow', 'pink', 'kalf'):
             category_label = animal_category.capitalize()
             
-            # The 5th element 'export_label' prevents variable overwriting
             feed_matrix = [
                 (f'DS_fresh_{animal_category}', 'N_cont_fresh_weighted', 'grass_fresh', False, 'FreshGrass'),
                 (f'DS_gs_{animal_category}', 'N_cont_gs_weighted', 'grass_silage', False, 'GrassSilage'), 
@@ -806,7 +692,6 @@ class NitrogenIntakeCalculator:
                 
                 vre_intake_kg = self._calculate_vre_intake(dry_matter, cp_content_concentration, feed_type)
                 
-                # Export distinct detailed columns for easy cross-checking with Excel
                 self.df[f'N_Intake_{export_label}_{category_label}'] = n_intake_kg
                 self.df[f'VRE_Intake_{export_label}_{category_label}'] = vre_intake_kg
                 
@@ -855,12 +740,10 @@ class NitrogenExcretionCalculatorVCRE:
         df = self.df
         cow_weight = df['avg_weight']
         
-        # Scaling animal weights dynamically based on reference mature weight curves
         weight_birth = cow_weight * self.RATIO_WEIGHT_BIRTH_TO_MATURE
         weight_heifer_1year = cow_weight * self.RATIO_WEIGHT_HEIFER_TO_MATURE
         weight_calving = cow_weight * self.RATIO_WEIGHT_CALVING_TO_MATURE
         
-        # Convert total body composition targets into absolute Nitrogen quantities
         n_birth_kg = weight_birth * self.N_CONCENTRATION_CALF_BIRTH / 1000
         n_heifer_1year_kg = weight_heifer_1year * self.N_CONCENTRATION_HEIFER_GROWTH / 1000
         n_calving_kg = weight_calving * self.N_CONCENTRATION_REPLACEMENT_CALVING / 1000
@@ -869,16 +752,13 @@ class NitrogenExcretionCalculatorVCRE:
         year_multiplier = np.where(df['MilkYield'] < 100, 365, 1)
         total_milk_yield = df['MilkYield'] * year_multiplier * df['Nr_koe']
         
-        # Biological N Retention outputs (Milk production and fetal tissue growth)
         n_retention_milk = total_milk_yield * df['Pro%'] * 10 / self.CONVERSION_DAIRY_N_TO_CRUDE_PROTEIN / 1000
         n_retention_fetus = n_birth_kg * self.CALVING_RATE_MULTIPLIER * df['Nr_koe']
         
-        # N flow balances resulting from herd rotation (cull outflows vs replacement inflows)
         n_replacement_inflow = self.REPLACEMENT_RATE_FRACTION * n_calving_kg * df['Nr_koe']
         n_cull_outflow = self.REPLACEMENT_RATE_FRACTION * n_mature_cow_kg * df['Nr_koe']
         df['N_Retention_Cow_VCRE'] = n_retention_milk + n_retention_fetus + (n_cull_outflow - n_replacement_inflow)
         
-        # Dynamic growth modeling for young stock calves
         growth_target_n = n_heifer_1year_kg - n_birth_kg
         growth_constant = 0.36 * df['breed_factor']
         temp_term_growth = growth_target_n * (0.376 / 0.407)
@@ -887,11 +767,9 @@ class NitrogenExcretionCalculatorVCRE:
         calf_n_retention_ratio = np.divide(temp_term_growth + temp_term_maintenance, growth_target_n, out=np.ones_like(growth_target_n.values, dtype=float), where=growth_target_n.values != 0)
         df['N_Retention_Kalf_VCRE'] = growth_target_n * df['Nr_kalf'] * calf_n_retention_ratio
         
-        # Dynamic growth modeling for replacement heifers
         growth_heifer_n = (n_calving_kg - n_heifer_1year_kg) * (12 / 14)
         df['N_Retention_Pink_VCRE'] = (n_birth_kg + growth_heifer_n) * df['Nr_pink']
         
-        # System aggregation across the entire farm inventory
         df['Total_N_Retention_Farm_VCRE'] = df['N_Retention_Cow_VCRE'] + df['N_Retention_Kalf_VCRE'] + df['N_Retention_Pink_VCRE']
         df['Total_N_Excretion_Cow_VCRE'] = df['Total_N_Intake_Cow'] - df['N_Retention_Cow_VCRE']
         df['Total_N_Excretion_Kalf_VCRE'] = df['Total_N_Intake_Kalf'] - df['N_Retention_Kalf_VCRE']
@@ -900,7 +778,6 @@ class NitrogenExcretionCalculatorVCRE:
         
         print(f"  ✓ 2.4 done — Farm1 total excretion: {df['Total_N_Excretion_Farm_VCRE'].iloc[0]:.1f} kg")
         return df
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 2.5 — Nitrogen Partitioning into Urinary (UUN) & Fecal (FN) (VCRE)
@@ -915,13 +792,8 @@ class NitrogenPartitioningVCRE:
         print(f"\n{'='*70}\nMODULE 2.5: Nitrogen Partitioning (VCRE Method)\n{'='*70}")
         df = self.df
         for category_code, category_label in [('cow', 'Cow'), ('pink', 'Pink'), ('kalf', 'Kalf')]:
-            # Scale total crude digestible protein intake using core efficiency factors
             digestible_n_intake = df[f'Total_N_Intake_{category_label}'] * df[f'VCRE_Factor_{category_label}'] * self.DAIRY_COW_CONVERSION_EFFICIENCY_FACTOR
-            
-            # Urinary Urea Nitrogen (UUN) represents the excess digestible pool over tissue retention
             urinary_urea_n = digestible_n_intake - df[f'N_Retention_{category_label}_VCRE']
-            
-            # Fecal Nitrogen (FN) constitutes the remaining excreted mass balance
             fecal_n = df[f'Total_N_Excretion_{category_label}_VCRE'] - urinary_urea_n
             
             df[f'UUN_{category_label}_VCRE'] = urinary_urea_n
@@ -933,13 +805,12 @@ class NitrogenPartitioningVCRE:
         print(f"  ✓ 2.5 done — Farm1 VCRE UUN Pool: {df['Total_UUN_Farm_VCRE'].iloc[0]:.1f} kg")
         return df
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 3.1 — Manure Net Mineralization (MUN & VCRE Systems)
 # ══════════════════════════════════════════════════════════════════════════════
 class MineralizationCalculator:
-    MINERALIZATION_RATE_SLURRY_FN = 0.10   # Mineralization release coefficient of slurry fecal organic bound N
-    MINERALIZATION_RATE_SOLID_UUN = -0.25   # Volatilization tie-down / loss parameter for solid manure systems
+    MINERALIZATION_RATE_SLURRY_FN = 0.10   
+    MINERALIZATION_RATE_SOLID_UUN = -0.25   
     
     def __init__(self, df): 
         self.df = df.copy()
@@ -948,7 +819,6 @@ class MineralizationCalculator:
         print(f"\n{'='*70}\nMODULE 3.1: Net Manure Mineralization Calculations\n{'='*70}")
         df = self.df
         
-        # --- A. Mineralization tracking for traditional MUN-based matrix ---
         for animal_name, fecal_n_col, urinary_n_col, slurry_fraction_col, suffix in [
             ('Cow', 'fn_total_cows_kg', 'uun_total_cows_kg', 'slurry%_koe', 'Cow'),
             ('Kalf', 'fn_total_kalf_kg', 'uun_total_kalf_kg', 'slurry%_kalf', 'Kalf'),
@@ -960,7 +830,6 @@ class MineralizationCalculator:
             
         df['Total_Net_Mineralization_MUN'] = df['Net_Min_Cow_MUN'] + df['Net_Min_Kalf_MUN'] + df['Net_Min_Pink_MUN']
         
-        # --- B. Mineralization tracking for updated VCRE-based matrix ---
         for animal_name, fecal_n_col, urinary_n_col, slurry_fraction_col, suffix in [
             ('Cow', 'FN_Cow_VCRE', 'UUN_Cow_VCRE', 'slurry%_koe', 'Cow'),
             ('Kalf', 'FN_Kalf_VCRE', 'UUN_Kalf_VCRE', 'slurry%_kalf', 'Kalf'),
@@ -987,13 +856,11 @@ class CorrectedTANCalculator:
         print(f"\n{'='*70}\nMODULE 3.2: Corrected Total Ammoniacal Nitrogen (TAN)\n{'='*70}")
         df = self.df
         
-        # Loop through both diagnostic methodologies to dynamically evaluate corrected target pools
         for method_name, uun_columns, mineralization_columns in [
             ('MUN', ['uun_total_cows_kg', 'uun_total_kalf_kg', 'uun_total_pink_kg'], ['Net_Min_Cow_MUN', 'Net_Min_Kalf_MUN', 'Net_Min_Pink_MUN']),
             ('VCRE', ['UUN_Cow_VCRE', 'UUN_Kalf_VCRE', 'UUN_Pink_VCRE'], ['Net_Min_Cow_VCRE', 'Net_Min_Kalf_VCRE', 'Net_Min_Pink_VCRE'])]:
             
             for animal_name, uun_col, mineralization_col in zip(['Cow', 'Kalf', 'Pink'], uun_columns, mineralization_columns):
-                # Corrected TAN = Soluble Urinary N (UUN) + Net Mineralization releases from the organic pool
                 df[f'Corrected_TAN_{animal_name}_{method_name}'] = df[uun_col] + df[mineralization_col]
                 
             df[f'Total_Corrected_TAN_{method_name}'] = (
@@ -1006,105 +873,289 @@ class CorrectedTANCalculator:
         return df
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODULE 4.1 — Ammonia Emissions (Stable/ Storage/ Grazing)
+# MODULE 4.1: Snelstal Ammonia Emission Model Setup
+# ══════════════════════════════════════════════════════════════════════════════
+class SnelstalModel:
+    MW_NH3_OVER_N = 17.0 / 14.0
+    VMAX_UREASE = 0.0027        # g-N/l/s
+    KM_UREASE = 0.056           # g-N/l
+    TIME_STEP = 60              # seconds
+    MINUTES_PER_DAY = 1440
+    STARTUP_DAYS = 1
+    HOURS_PER_YEAR = 8760.0
+
+    @staticmethod
+    def fraction_nh3(temp_c, pH):
+        t_k = temp_c + 273.0
+        ka = 8.1e-11 * (1.07 ** (t_k - 293.0))
+        return 1.0 / (1.0 + 10.0 ** (-pH) / ka)
+
+    @staticmethod
+    def henry_constant(temp_c):
+        return 1384.0 * (1.053 ** (293.0 - (temp_c + 273.0)))
+
+    @staticmethod
+    def mass_transfer_coeff(temp_c, air_speed):
+        t_k = temp_c + 273.0
+        return 48.389 * (air_speed ** 0.8) * (t_k ** (-1.4))
+
+    @classmethod
+    def pit_emission_g_per_hr(cls, tan, area, temp_c, air_speed, pH, pct=100.0):
+        f = cls.fraction_nh3(temp_c, pH)
+        kh = cls.henry_constant(temp_c)
+        kmt = cls.mass_transfer_coeff(temp_c, air_speed)
+        return tan * area * f * kmt / kh * cls.MW_NH3_OVER_N * 3_600_000.0 * pct / 100.0
+
+    @classmethod
+    def precompute_pool_profile(cls, urea_n, pool_area, pool_depth_m, temp_c, air_speed, pH):
+        f = cls.fraction_nh3(temp_c, pH)
+        kh = cls.henry_constant(temp_c)
+        kmt = cls.mass_transfer_coeff(temp_c, air_speed)
+        vol_l = pool_area * pool_depth_m * 1000.0
+        u, t = urea_n, 0.0
+        cum = [0.0]
+        for _ in range(2880):
+            if u > 1e-15:
+                rate = cls.VMAX_UREASE * u / (cls.KM_UREASE + u)
+                du = min(rate * cls.TIME_STEP, u)
+                u -= du
+                t += du
+            if t > 1e-15:
+                e = kmt * pool_area * f * t * 1000.0 / kh * cls.TIME_STEP
+                dc = min(e / vol_l, t)
+                t -= dc
+                cum.append(cum[-1] + dc * vol_l)
+            else:
+                cum.append(cum[-1])
+            if u < 1e-15 and t < 1e-15:
+                final = cum[-1]
+                while len(cum) <= 2880:
+                    cum.append(final)
+                break
+        return cum
+
+    @classmethod
+    def floor_emission_single_run(cls, num_cows, freq, urea_n, grazing_hrs, floor_area,
+                                   temp_c, air_speed, pool_area, pool_depth_m, pH,
+                                   calc_days, rng, pool_profile):
+        indoor = (24.0 - grazing_hrs) / 24.0
+        urin_per_day = num_cows * freq * indoor
+        n_slots = max(1, int(floor_area / pool_area))
+        total_days = cls.STARTUP_DAYS + calc_days
+        total_min = total_days * cls.MINUTES_PER_DAY
+        startup_end = cls.STARTUP_DAYS * cls.MINUTES_PER_DAY
+        max_age = len(pool_profile) - 1
+        total_events = int(round(urin_per_day * total_days))
+        events = sorted([(rng.randint(0, total_min - 1), rng.randint(0, n_slots - 1))
+                         for _ in range(total_events)])
+        slot_birth = {}
+        emission_gN = 0.0
+        for minute, slot in events:
+            if slot in slot_birth:
+                b = slot_birth[slot]
+                age = min(minute - b, max_age)
+                if b >= startup_end:
+                    emission_gN += pool_profile[age]
+                elif minute > startup_end:
+                    emission_gN += pool_profile[age] - pool_profile[min(startup_end - b, max_age)]
+            slot_birth[slot] = minute
+        for slot, b in slot_birth.items():
+            age = min(total_min - b, max_age)
+            if b >= startup_end:
+                emission_gN += pool_profile[age]
+            elif b + age > startup_end:
+                emission_gN += pool_profile[age] - pool_profile[min(startup_end - b, max_age)]
+        return emission_gN * cls.MW_NH3_OVER_N / (calc_days * 24.0)
+
+    @classmethod
+    def run(cls, num_runs, calc_days, num_cows, freq, urea_n, tan, grazing_hrs,
+            floor_area, floor_temp, floor_v, pool_area, pool_depth_mm, floor_pH,
+            pit_area, pit_temp, pit_v, pit_pH, pit_pct, seed=42):
+        
+        pit_g_hr = cls.pit_emission_g_per_hr(tan, pit_area, pit_temp, pit_v, pit_pH, pit_pct)
+        pool_depth_m = pool_depth_mm / 1000.0
+        profile = cls.precompute_pool_profile(urea_n, pool_area, pool_depth_m, floor_temp, floor_v, floor_pH)
+        
+        rng_master = random.Random(seed)
+        floor_sum = 0.0
+        for _ in range(num_runs):
+            run_rng = random.Random(rng_master.randint(0, 2**31 - 1))
+            floor_sum += cls.floor_emission_single_run(
+                num_cows, freq, urea_n, grazing_hrs, floor_area,
+                floor_temp, floor_v, pool_area, pool_depth_m, floor_pH,
+                calc_days, run_rng, profile)
+            
+        floor_g_hr = floor_sum / num_runs
+        total_g_hr = floor_g_hr + pit_g_hr
+        
+        safe_cows = max(num_cows, 1.0) # Prevent division by zero
+        return {
+            "floor_kg_per_cow_per_yr": floor_g_hr * cls.HOURS_PER_YEAR / 1000.0 / safe_cows,
+            "pit_kg_per_cow_per_yr": pit_g_hr * cls.HOURS_PER_YEAR / 1000.0 / safe_cows,
+            "total_kg_per_cow_per_yr": total_g_hr * cls.HOURS_PER_YEAR / 1000.0 / safe_cows,
+        }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 4.1 — Ammonia Emissions (Stable: Snelstal Model / Storage / Grazing)
 # ══════════════════════════════════════════════════════════════════════════════
 class EmissionCalculator:
-    # Standard emission factors (based on HA1.100 as reference)
-    REFERENCE_STABLE_EF = 0.143
     GRAZING_EF = 0.04
     RAV_REFERENCE_NH3_KG = 13.0
     
-    # Storage factors
     EF_STORAGE_SLURRY_OUTDOOR = 0.024
     EF_STORAGE_SOLID_OUTDOOR = 0.035
     EF_STORAGE_SOLID_MANURE = 0.01
     FRACTION_MANURE_TO_SOLID_STORAGE = 0.20
     
-    # Scaling factor
     MOLECULAR_WEIGHT_RATIO_N_TO_NH3 = 14.0 / 17.0
 
     def __init__(self, df): 
         self.df = df.copy()
         
     def calculate_emissions(self):
-        print(f"\n{'='*70}\nMODULE 4.1: Ammonia Emissions (Stable/ Storage/ Grazing)\n{'='*70}")
+        print(f"\n{'='*70}\nMODULE 4.1: Ammonia Emissions (Stable: Snelstal Model / Storage / Grazing)\n{'='*70}")
         df = self.df
         
-        # Dynamic Stable Correction Factor (x / 13.0)
-        df['Stability_Correction_Factor'] = np.where(df['RAV_NH3_kg'] > 0, df['RAV_NH3_kg'] / self.RAV_REFERENCE_NH3_KG, 1.0)
+        # Calculate Total GVE (Standard Livestock Unit) to use as equivalent mature cows
+        df['Total_GVE_Farm'] = (df['Nr_koe'] * 1.0) + (df['Nr_pink'] * 0.50) + (df['Nr_kalf'] * 0.25)
         
+        # --- APPLY SILENT FALLBACKS FOR SNELSTAL MODEL INPUTS ---
+        df = ensure_numeric(df, 'Walking_Area_m2', 0.0)
+        df['Walking_Area_m2'] = np.where(df['Walking_Area_m2'] > 0, df['Walking_Area_m2'], df['Total_GVE_Farm'] * 3.5)
+        
+        df = ensure_numeric(df, 'Pit_Area_m2', 0.0)
+        df['Pit_Area_m2'] = np.where(df['Pit_Area_m2'] > 0, df['Pit_Area_m2'], df['Walking_Area_m2'])
+        
+        df = ensure_numeric(df, 'UUN_Override_g_l', 5.0)
+        df['UUN_Override_g_l'] = np.where(df['UUN_Override_g_l'] > 0, df['UUN_Override_g_l'], 5.0)
+
+        df = ensure_numeric(df, 'Puddle_Area_m2', 0.80)
+        df['Puddle_Area_m2'] = np.where(df['Puddle_Area_m2'] > 0, df['Puddle_Area_m2'], 0.80)
+
+        df = ensure_numeric(df, 'Puddle_Depth_mm', 0.48)
+        df['Puddle_Depth_mm'] = np.where(df['Puddle_Depth_mm'] > 0, df['Puddle_Depth_mm'], 0.48)
+
+        df = ensure_numeric(df, 'Floor_pH', 8.4)
+        df['Floor_pH'] = np.where(df['Floor_pH'] > 0, df['Floor_pH'], 8.4)
+
+        df = ensure_numeric(df, 'AirSpeed_Floor_ms', 0.15)
+        df['AirSpeed_Floor_ms'] = np.where(df['AirSpeed_Floor_ms'] > 0, df['AirSpeed_Floor_ms'], 0.15)
+
+        df = ensure_numeric(df, 'Temp_Floor_C', 10.0)
+        df = ensure_numeric(df, 'Temp_Pit_C', 10.0)
+
+        df = ensure_numeric(df, 'AirSpeed_Pit_ms', 0.05)
+        df['AirSpeed_Pit_ms'] = np.where(df['AirSpeed_Pit_ms'] > 0, df['AirSpeed_Pit_ms'], 0.05)
+
+        df = ensure_numeric(df, 'Pit_pH', 8.4)
+        df['Pit_pH'] = np.where(df['Pit_pH'] > 0, df['Pit_pH'], 8.4)
+        
+        # Snelstal config parameters 
+        NUM_RUNS = 10    
+        CALC_DAYS = 30  
+
         animal_categories_configuration = [
             {
                 'animal_name': 'Cow', 'slurry_fraction_col': 'slurry%_koe',
                 'grazing_days_frac_col': 'grazing_days_frac_cow', 
                 'grazing_hours_frac_col': 'grazing_hours_frac_cow',
+                'grazing_time_frac_col': 'grazing_time_frac_cow',
                 'indoor_frac_col': 'indoor_frac_cow',
-                'indoor_stay_during_grazing_col': 'indoor_stay_during_grazing_cow',
-                'grazing_reduction_col': 'grazing_reduction_cow',
                 'gross_n_mun_col': 'gross_n_cows_mun', 'uun_mun_col': 'uun_total_cows_kg', 'corrected_tan_mun_col': 'Corrected_TAN_Cow_MUN',
                 'gross_n_vcre_col': 'Total_N_Excretion_Cow_VCRE', 'uun_vcre_col': 'UUN_Cow_VCRE', 'corrected_tan_vcre_col': 'Corrected_TAN_Cow_VCRE'
             },
             {
                 'animal_name': 'Pink', 'slurry_fraction_col': 'slurry%_pink',
                 'grazing_days_frac_col': 'grazing_days_frac_pink', 
+                'grazing_time_frac_col': 'grazing_time_frac_pink',
                 'grazing_hours_frac_col': 'grazing_hours_frac_pink',
                 'indoor_frac_col': 'indoor_frac_pink',
-                'indoor_stay_during_grazing_col': 'indoor_stay_during_grazing_pink',
-                'grazing_reduction_col': 'grazing_reduction_pink',
                 'gross_n_mun_col': 'gross_n_heifers_mun', 'uun_mun_col': 'uun_total_pink_kg', 'corrected_tan_mun_col': 'Corrected_TAN_Pink_MUN',
                 'gross_n_vcre_col': 'Total_N_Excretion_Pink_VCRE', 'uun_vcre_col': 'UUN_Pink_VCRE', 'corrected_tan_vcre_col': 'Corrected_TAN_Pink_VCRE'
             },
             {
                 'animal_name': 'Kalf', 'slurry_fraction_col': 'slurry%_kalf',
                 'grazing_days_frac_col': 'grazing_days_frac_kalf', 
+                'grazing_time_frac_col': 'grazing_time_frac_kalf',
                 'grazing_hours_frac_col': 'grazing_hours_frac_kalf',
                 'indoor_frac_col': 'indoor_frac_kalf',
-                'indoor_stay_during_grazing_col': 'indoor_stay_during_grazing_kalf',
-                'grazing_reduction_col': 'grazing_reduction_kalf',
                 'gross_n_mun_col': 'gross_n_calves_mun', 'uun_mun_col': 'uun_total_kalf_kg', 'corrected_tan_mun_col': 'Corrected_TAN_Kalf_MUN',
                 'gross_n_vcre_col': 'Total_N_Excretion_Kalf_VCRE', 'uun_vcre_col': 'UUN_Kalf_VCRE', 'corrected_tan_vcre_col': 'Corrected_TAN_Kalf_VCRE'
             }
         ]
         
-        for category in animal_categories_configuration:
-            name = category['animal_name']
-            slurry_fraction = df[category['slurry_fraction_col']].fillna(1.0)
+        for methodology in ['mun', 'vcre']:
+            method_suffix = 'MUN' if methodology == 'mun' else 'VCRE'
+            total_tan_col = f'Total_Corrected_TAN_{method_suffix}'
             
-            # --- Fetching unified Grazing & Indoor logics from Module 1.1 ---
-            grazing_days_frac = df[category['grazing_days_frac_col']].fillna(0)
-            grazing_hours_frac = df[category['grazing_hours_frac_col']].fillna(0)
-            indoor_period = df[category['indoor_frac_col']].fillna(1.0)
-            indoor_stay_during_grazing = df[category['indoor_stay_during_grazing_col']].fillna(1.0)
-            grazing_reduction = df[category['grazing_reduction_col']].fillna(1.0)
+            snelstal_stable_emissions_nh3 = []
+            tan_concentrations = []
             
-            stable_period_frac = (1.0 - grazing_days_frac)
+            print(f"    Running Snelstal Model Monte Carlo for [{method_suffix}] Method...")
             
-            for methodology in ['mun', 'vcre']:
-                method_suffix = 'MUN' if methodology == 'mun' else 'VCRE'
+            # --- EXECUTE SNELSTAL MODEL FOR EACH FARM ---
+            for i, row in df.iterrows():
+                gve = row['Total_GVE_Farm'] if row['Total_GVE_Farm'] > 0 else 1.0
+                vol_m3 = row['Total_Manure_Volume_m3']
+                tan_kg = row[total_tan_col]
+                
+                indoor_fraction = row['indoor_frac_cow']
+                indoor_tan_kg = tan_kg * indoor_fraction
+                tan_concentration = indoor_tan_kg / vol_m3 if vol_m3 > 0 else 0.0
+                tan_concentrations.append(tan_concentration)
+                
+                # Fetch grazing and regulatory discounts
+                grazing_hrs = row['grazing_time_frac_cow'] * 24.0 # Primary herd hours
+                rav_kg = row['RAV_NH3_kg']
+                pit_pct = (rav_kg / self.RAV_REFERENCE_NH3_KG * 100.0) if rav_kg > 0 else 100.0
+                
+              # Run the physical engine
+
+                result = SnelstalModel.run(
+                num_runs=NUM_RUNS, calc_days=CALC_DAYS,
+                num_cows=gve, freq=10, urea_n=row['UUN_Override_g_l'],
+                tan=tan_concentration, grazing_hrs=grazing_hrs,
+                floor_area=row['Walking_Area_m2'], floor_temp=row['Temp_Floor_C'], floor_v=row['AirSpeed_Floor_ms'],
+                pool_area=row['Puddle_Area_m2'], pool_depth_mm=row['Puddle_Depth_mm'], floor_pH=row['Floor_pH'],
+                pit_area=row['Pit_Area_m2'], pit_temp=row['Temp_Pit_C'], pit_v=row['AirSpeed_Pit_ms'],
+                pit_pH=row['Pit_pH'], pit_pct=pit_pct
+                )
+                
+                # Snelstal returns direct NH3 gas loss (kg) per GVE. We scale it to whole farm.
+                total_farm_stable_nh3 = result['total_kg_per_cow_per_yr'] * gve
+                snelstal_stable_emissions_nh3.append(total_farm_stable_nh3)
+             
+            df[f'TAN_Concentration_{method_suffix}'] = tan_concentrations    
+            df[f'Snelstal_Total_Stable_NH3_{method_suffix}'] = snelstal_stable_emissions_nh3
+            
+            # --- DISTRIBUTE EMISSIONS & CALCULATE OTHER LOSSES ---
+            for category in animal_categories_configuration:
+                name = category['animal_name']
+                slurry_fraction = df[category['slurry_fraction_col']].fillna(1.0)
+                
+                grazing_days_frac = df[category['grazing_days_frac_col']].fillna(0)
+                grazing_time_frac = df[category['grazing_time_frac_col']].fillna(0)
+                indoor_period = df[category['indoor_frac_col']].fillna(1.0)
+                
                 gross_n_col = category['gross_n_mun_col'] if methodology == 'mun' else category['gross_n_vcre_col']
-                uun_col = category['uun_mun_col'] if methodology == 'mun' else category['uun_vcre_col']
                 tan_col = category['corrected_tan_mun_col'] if methodology == 'mun' else category['corrected_tan_vcre_col']
                 
                 gross_n_excretion = df[gross_n_col].fillna(0)
-                urinary_urea_n = df[uun_col].fillna(0)
                 total_ammoniacal_nitrogen = df[tan_col].fillna(0)
                 
-                # 1. Stable Period Stable Emission (non-grazing days)
-                stable_emission = total_ammoniacal_nitrogen * stable_period_frac * self.REFERENCE_STABLE_EF * df['Stability_Correction_Factor']
+                # 1. Distribute Snelstal Stable Emission based on TAN fraction
+                fraction = np.where(df[total_tan_col] > 0, df[tan_col] / df[total_tan_col], 0.0)
+                df[f'Emission_Stable_{name}_{method_suffix}'] = df[f'Snelstal_Total_Stable_NH3_{method_suffix}'] * fraction
                 
-                # 2. Grazing Period Stable Emission (indoor stay during grazing days)
-                grazing_period_stable_emission = (total_ammoniacal_nitrogen * grazing_days_frac * indoor_stay_during_grazing * self.REFERENCE_STABLE_EF * df['Stability_Correction_Factor'] * grazing_reduction)
+                # 2. Grazing Emission (Uses standard EF)
+                df[f'Emission_Grazing_{name}_{method_suffix}'] = (total_ammoniacal_nitrogen * grazing_time_frac * self.GRAZING_EF) / self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3
                 
-                # Combined Stable Emission (converted to NH3 gas mass via 17/14 division)
-                df[f'Emission_Stable_{name}_{method_suffix}'] = (stable_emission + grazing_period_stable_emission) / self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3
-                
-                # 3. Grazing Emission
-                df[f'Emission_Grazing_{name}_{method_suffix}'] = (total_ammoniacal_nitrogen * grazing_days_frac * grazing_hours_frac * self.GRAZING_EF) / self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3
-                
-                # 4. Storage Emission (Recycled from original logic, using the fetched indoor_period)
+                # 3. Storage Emission 
+                # (Note: Emission_Stable is already in NH3 gas form, so we must divide excreted Nitrogen by 14/17 before subtraction)
                 nitrogen_excreted_indoors = gross_n_excretion * indoor_period
                 outdoor_storage_loss = nitrogen_excreted_indoors * (slurry_fraction * self.EF_STORAGE_SLURRY_OUTDOOR + (1.0 - slurry_fraction) * self.EF_STORAGE_SOLID_OUTDOOR)
                 remaining_tan_for_solid_manure_storage = ((nitrogen_excreted_indoors - outdoor_storage_loss) / self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3 - df[f'Emission_Stable_{name}_{method_suffix}']).clip(lower=0)
+                
                 df[f'Emission_Storage_{name}_{method_suffix}'] = remaining_tan_for_solid_manure_storage * self.FRACTION_MANURE_TO_SOLID_STORAGE * self.EF_STORAGE_SOLID_MANURE
                 
         # Aggregation
@@ -1118,14 +1169,13 @@ class EmissionCalculator:
                 df[f'Total_Emission_Grazing_{method_suffix}']
             )
             
-        print(f"  ✓ 4.1 diag — Farm 1 EF_Stable applied: {self.REFERENCE_STABLE_EF * df['Stability_Correction_Factor'].iloc[0]:.4f} (RAV: {df['RAV_NH3_kg'].iloc[0]} kg)")
-        print(f"  ✓ 4.1 done — Total VCRE: {df['Total_Emission_All_VCRE'].iloc[0]:.2f}")
+        print(f"  ✓ 4.1 done — Total NH3 Indoor (VCRE basis): {df['Total_Emission_All_VCRE'].iloc[0]:.2f} kg")
         return df
+          
 # ══════════════════════════════════════════════════════════════════════════════
 # MODULE 4.2 — Land Application Limits (VCRE-based, Dutch RVO Regulatory Rules)
 # ══════════════════════════════════════════════════════════════════════════════
 class LandApplicationCalculator:
-    # Norm 2026, not NV_gebied area.
     TABEL_2_NITROGEN_USE_NORMS = {
         'grasland_beweiden':        {'klei': 345, 'zand_nwc': 250, 'zand_zuid': 250, 'loss': 250, 'veen': 265},
         'grasland_maaien':          {'klei': 385, 'zand_nwc': 320, 'zand_zuid': 320, 'loss': 320, 'veen': 300},
@@ -1151,12 +1201,9 @@ class LandApplicationCalculator:
         self._ensure_columns()
 
     def _ensure_columns(self):
-        """Validates that input datasets conform to structural requirements."""
         if 'HA_Crop' in self.df.columns and 'Ha_Crop' not in self.df.columns:
             self.df.rename(columns={'HA_Crop': 'Ha_Crop'}, inplace=True)
-
-        if 'CropType' not in self.df.columns:
-            self.df['CropType'] = 'overig'
+        if 'CropType' not in self.df.columns: self.df['CropType'] = 'overig'
 
         columns_to_verify_numeric = ['Ha_Grass', 'Ha_Mais', 'Ha_Crop', 'NatureGL%']
         for col in columns_to_verify_numeric:
@@ -1175,10 +1222,8 @@ class LandApplicationCalculator:
         else:
             self.df['slurry%_koe'] = self.df['slurry%_koe'].clip(0.0, 1.0)
 
-        if 'Soil_Type' not in self.df.columns:
-            self.df['Soil_Type'] = 'zand'
-        if 'Region' not in self.df.columns:
-            self.df['Region'] = 'Others'
+        if 'Soil_Type' not in self.df.columns: self.df['Soil_Type'] = 'zand'
+        if 'Region' not in self.df.columns: self.df['Region'] = 'Others'
 
     @staticmethod
     def _is_yes_string(value) -> bool:
@@ -1186,14 +1231,10 @@ class LandApplicationCalculator:
 
     @staticmethod
     def _get_soil_key(soil_type, region):
-        soil_str = str(soil_type).lower()
-        region_str = str(region).lower()
-        if 'klei' in soil_str:
-            return 'klei'
-        if 'veen' in soil_str:
-            return 'veen'
-        if any(term in soil_str for term in ('loss', 'loes', 'löss')):
-            return 'loss'
+        soil_str, region_str = str(soil_type).lower(), str(region).lower()
+        if 'klei' in soil_str: return 'klei'
+        if 'veen' in soil_str: return 'veen'
+        if any(term in soil_str for term in ('loss', 'loes', 'löss')): return 'loss'
         if 'zand' in soil_str:
             return 'zand_zuid' if ('zuid' in region_str or 'south' in region_str) else 'zand_nwc'
         return 'zand_nwc'
@@ -1208,19 +1249,15 @@ class LandApplicationCalculator:
         return 'grasland_beweiden' if total_grazing_days > 0 else 'grasland_maaien'
 
     def _get_maize_derogation_key(self, row) -> str:
-        is_derogation = self._is_yes_string(row.get('Derogation', 'No'))
-        return 'mais_derogatie' if is_derogation else 'mais_geen_derogatie'
+        return 'mais_derogatie' if self._is_yes_string(row.get('Derogation', 'No')) else 'mais_geen_derogatie'
 
     def _get_manure_limit_per_hectare(self, row) -> float:
-        is_derogation = self._is_yes_string(row.get('Derogation', 'No'))
-        is_nitrate_vulnerable_zone = self._is_yes_string(row.get('NV_Area', 'No'))
-        if is_derogation:
-            return 190.0 if is_nitrate_vulnerable_zone else 200.0
+        if self._is_yes_string(row.get('Derogation', 'No')):
+            return 190.0 if self._is_yes_string(row.get('NV_Area', 'No')) else 200.0
         return 170.0
 
     def _check_if_grazing_practiced(self, row) -> bool:
-        total_grazing_days = float(row.get('GD_Limited_Koe', 0) or 0) + float(row.get('GD_Combi_Koe', 0) or 0) + float(row.get('GD_Unlimited_Koe', 0) or 0)
-        return total_grazing_days > 0
+        return (float(row.get('GD_Limited_Koe', 0) or 0) + float(row.get('GD_Combi_Koe', 0) or 0) + float(row.get('GD_Unlimited_Koe', 0) or 0)) > 0
 
     def _calculate_working_coefficient(self, row) -> float:
         slurry_fraction = float(row.get('slurry%_koe', 1.0) or 1.0)
@@ -1232,10 +1269,8 @@ class LandApplicationCalculator:
     def calculate_land_application(self) -> pd.DataFrame:
         print(f"\n{'='*70}\nMODULE 4.2: Land Application Limit Calculations (VCRE-based)\n{'='*70}")
         df = self.df
-
         df['Soil_Key_5_1'] = [self._get_soil_key(s, r) for s, r in zip(df['Soil_Type'], df['Region'])]
         df['Ha_Total_For_ManureLimit'] = (df['Ha_Grass'] + df['Ha_Mais'] + df['Ha_Crop']).clip(lower=0)
-
         df['Manure_Limit_kgN_per_ha'] = df.apply(self._get_manure_limit_per_hectare, axis=1)
         df['Manure_Limit_Total_kgN'] = df['Manure_Limit_kgN_per_ha'] * df['Ha_Total_For_ManureLimit']
 
@@ -1252,8 +1287,6 @@ class LandApplicationCalculator:
         df['UsageSpace_Total_kgN'] = df['UsageSpace_Grass_kgN'] + df['UsageSpace_Maize_kgN'] + df['UsageSpace_Crop_kgN']
 
         for col in ['Total_N_Excretion_Farm_VCRE', 'Total_Emission_All_VCRE']:
-            if col not in df.columns:
-                df[col] = 0.0
             df = ensure_numeric(df, col, 0.0)
 
         df['ManureN_Available_After_Emissions_kgN'] = (df['Total_N_Excretion_Farm_VCRE'] - df['Total_Emission_All_VCRE']).clip(lower=0)
@@ -1263,13 +1296,9 @@ class LandApplicationCalculator:
         df['ManureN_Effective_kgN'] = df['ManureN_Applied_kgN'] * df['Working_Coefficient']
         df['FertiliserSpace_kgN'] = (df['UsageSpace_Total_kgN'] - df['ManureN_Effective_kgN']).clip(lower=0)
 
-        df['BindingConstraint'] = np.where(
-            df['ManureN_Available_After_Emissions_kgN'] >= df['Manure_Limit_Total_kgN'],
-            'ManureLimit',
-            'Availability'
-        )
+        df['BindingConstraint'] = np.where(df['ManureN_Available_After_Emissions_kgN'] >= df['Manure_Limit_Total_kgN'], 'ManureLimit', 'Availability')
 
-        print(f"  ✓ 4.2 done — Farm1 UsageSpace: {df['UsageSpace_Total_kgN'].iloc[0]:.1f} kg N; Applied manure: {df['ManureN_Applied_kgN'].iloc[0]:.1f} kg N ({df['BindingConstraint'].iloc[0]})")
+        print(f"  ✓ 4.2 done — Farm1 UsageSpace: {df['UsageSpace_Total_kgN'].iloc[0]:.1f} kg N; Applied manure: {df['ManureN_Applied_kgN'].iloc[0]:.1f} kg N")
         return df
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1277,42 +1306,25 @@ class LandApplicationCalculator:
 # ══════════════════════════════════════════════════════════════════════════════
 class ApplicationEmissionCalculator:
     EMISSION_FACTOR_SYNTHETIC_FERTILISER = {
-        '100%ammonium': 11.3,
-        '100%nitraat': 0.0,
-        'combinatievanammoniumetnitraat': 2.5, 
-        'combinatievanammoniumennitraat': 2.5, 
-        'ureum,gekorreld,zonderurease-remmer': 14.3,
-        'ureum,gekorreld,meturease-remmer': 5.9,
-        'voeibaarureumzonderurease-remmerofzuur': 7.5, 
-        'vloeibaarureumzonderurease-remmerofzuur': 7.5,
-        'vloeibaarureummeturease-remmerofzuuer': 3.1,  
-        'vloeibaarureummeturease-remmerofzuur': 3.1,
-        'vloeibaarureumtoegviainjectie': 1.5,          
+        '100%ammonium': 11.3, '100%nitraat': 0.0, 'combinatievanammoniumetnitraat': 2.5, 
+        'combinatievanammoniumennitraat': 2.5, 'ureum,gekorreld,zonderurease-remmer': 14.3,
+        'ureum,gekorreld,meturease-remmer': 5.9, 'voeibaarureumzonderurease-remmerofzuur': 7.5, 
+        'vloeibaarureumzonderurease-remmerofzuur': 7.5, 'vloeibaarureummeturease-remmerofzuuer': 3.1,  
+        'vloeibaarureummeturease-remmerofzuur': 3.1, 'vloeibaarureumtoegviainjectie': 1.5,          
         'vloeibaarureumtoegediendviainjectie': 1.5
     }
-
     EMISSION_FACTOR_MANURE_GRASSLAND = {
-        'bovengronds': 68.0,
-        'sleepvoet': 26.4,
-        'sleepvoetverdund': 17.0,
-        'sleufkouterverdund': 17.0,
-        'sleufkouter': 21.7,
-        'zodebemester': 17.0
+        'bovengronds': 68.0, 'sleepvoet': 26.4, 'sleepvoetverdund': 17.0,
+        'sleufkouterverdund': 17.0, 'sleufkouter': 21.7, 'zodebemester': 17.0
     }
-
     EMISSION_FACTOR_MANURE_CROPLAND = {
-        'bovengronds': 69.0,
-        'ineenwerkgangonderwerken': 22.0,
-        'sleepvoet': 36.0,
-        'diepeinjectie': 2.0,
-        'ondiepeinjectie': 24.0
+        'bovengronds': 69.0, 'ineenwerkgangonderwerken': 22.0, 'sleepvoet': 36.0,
+        'diepeinjectie': 2.0, 'ondiepeinjectie': 24.0
     }
-    
     MOLECULAR_WEIGHT_RATIO_N_TO_NH3 = 14.0 / 17.0
     MOLECULAR_WEIGHT_RATIO_NH3_TO_N = 17.0 / 14.0
 
-    def __init__(self, df):
-        self.df = df.copy()
+    def __init__(self, df): self.df = df.copy()
 
     def _normalize_and_clean_string(self, string_value):
         return str(string_value).lower().replace(' ', '').strip()
@@ -1333,10 +1345,7 @@ class ApplicationEmissionCalculator:
         corrected_tan_mun = self.df['Total_Corrected_TAN_MUN']
         indoor_emissions_total_mun = self.df['Total_Emission_All_MUN']
         
-        if 'Total_Nitrogen_Excretion_kg' in self.df.columns:
-            nitrogen_excretion_total_mun = self.df['Total_Nitrogen_Excretion_kg']
-        else:
-            nitrogen_excretion_total_mun = self.df.get('Total_Nitrogen_Excretion_MUN', 0.0) 
+        nitrogen_excretion_total_mun = self.df.get('Total_Nitrogen_Excretion_kg', self.df.get('Total_Nitrogen_Excretion_MUN', 0.0)) 
         
         corrected_tan_vcre = self.df['Total_Corrected_TAN_VCRE']
         indoor_emissions_total_vcre = self.df['Total_Emission_All_VCRE']
@@ -1349,7 +1358,6 @@ class ApplicationEmissionCalculator:
         net_tan_pool_after_indoor_losses_vcre = (corrected_tan_vcre - (indoor_emissions_total_vcre * self.MOLECULAR_WEIGHT_RATIO_N_TO_NH3)).clip(lower=0)
         
         self.df['Net_TAN_Pool_After_Indoor_Losses_VCRE'] = net_tan_pool_after_indoor_losses_vcre
-        
         average_net_tan_pool = (net_tan_pool_after_indoor_losses_mun + net_tan_pool_after_indoor_losses_vcre) / 2.0
         self.df['Avg_Net_TAN_Excreted'] = average_net_tan_pool
         
@@ -1379,7 +1387,6 @@ class ApplicationEmissionCalculator:
         self.df['TAN_Applied_Manure_Arable'] = tan_applied_manure_cropland
         self.df['TAN_Applied_Manure_Total'] = tan_applied_manure_grassland + tan_applied_manure_cropland
         
-        # Multiply by molecular scale factor 17/14 to convert from N back to raw NH3 gas equivalents
         application_emission_manure_grassland = (tan_applied_manure_grassland * self.df['EF_Manure_Grass_%'] / 100.0) * self.MOLECULAR_WEIGHT_RATIO_NH3_TO_N
         application_emission_manure_cropland = (tan_applied_manure_cropland * self.df['EF_Manure_Arable_%'] / 100.0) * self.MOLECULAR_WEIGHT_RATIO_NH3_TO_N
         
@@ -1395,9 +1402,6 @@ class ApplicationEmissionCalculator:
         self.df['Total_Farm_NH3_Emission_MUN'] = indoor_emissions_total_mun + total_application_emission_manure + total_application_emission_fertiliser
         self.df['Total_Farm_NH3_Emission_VCRE'] = indoor_emissions_total_vcre + total_application_emission_manure + total_application_emission_fertiliser
             
-        # Dutch standard livestock unit conversion (Grootvee-eenheid / GVE) values
-        self.df['Total_GVE_Farm'] = (self.df['Nr_koe'] * 1.0) + (self.df['Nr_pink'] * 0.50) + (self.df['Nr_kalf'] * 0.25)
-        
         safe_total_gve_farm = np.where(self.df['Total_GVE_Farm'] > 0, self.df['Total_GVE_Farm'], 1.0)
         
         self.df['NH3_Emission_per_GVE_MUN'] = self.df['Total_Farm_NH3_Emission_MUN'] / safe_total_gve_farm
@@ -1412,46 +1416,25 @@ class ApplicationEmissionCalculator:
         return self.df   
      
 def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complete.xlsx', SHEET='Main input'):
-    # ── 1.1 Load + manure totals
     m11 = FarmManureCalculator(INPUT_PATH, SHEET)
     df = m11.load_and_clean()
     m11.df = df
     df = m11.calculate_totals()
-
-    # ── 1.2 MUN partitioning (kept for comparison / dependencies)
     df = NitrogenPartitioningCalculator(df).calculate_partitioning()
-
-    # ── 2.1 VEM requirements
     df = VEMRequirementCalculator(df).calculate_requirements()
-
-    # ── 2.2 VEM allocation
     df = VEMAllocationCalculator(df).run_allocation()
-
-    # ── 2.3 N intake
     df = NitrogenIntakeCalculator(df).run_nutrient_calculation()
-
-    # ── 2.4 VCRE excretion
     df = NitrogenExcretionCalculatorVCRE(df).calculate_excretion()
-
-    # ── 2.5 VCRE partitioning
     df = NitrogenPartitioningVCRE(df).calculate_partitioning()
-
-    # ── 3.1 mineralization
     df = MineralizationCalculator(df).calculate_mineralization()
-
-    # ── 3.2 corrected TAN
     df = CorrectedTANCalculator(df).calculate_corrected_tan()
-
-    # ── 4.1 emissions during stable, grazing, storage
-    df = EmissionCalculator(df).calculate_emissions()
-
-    # ── 4.2 land application (VCRE)
-    df = LandApplicationCalculator(df).calculate_land_application()
     
-    # ── 4.3 Application Emission
+    # ── 4.1 Contains the new Snelstal Monte Carlo physics engine 
+    df = EmissionCalculator(df).calculate_emissions()
+    
+    df = LandApplicationCalculator(df).calculate_land_application()
     df = ApplicationEmissionCalculator(df).run_application_emission()
 
-    # Write output
     with pd.ExcelWriter(OUTPUT_PATH, engine='openpyxl') as xl:
         df.to_excel(xl, sheet_name='Results', index=False)
 
@@ -1460,6 +1443,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/0209 Frank data eigen.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_eigen071.xlsx'
+    INPUT = '/Users/shuaij/Desktop/0907 DMS data eigen snel.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/Output_eigen_snelstal1.xlsx'
     run_pipeline(INPUT, OUTPUT)
