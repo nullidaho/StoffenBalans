@@ -388,8 +388,7 @@ class VEMAllocationCalculator:
         # --- 1. Calculate Aggregated Inventories & Nets ---
         
         # Kunstmelk
-        self.df['Kg_KunstMelk_Kalf_Net'] = self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']
-        self.df['Kg_KunstMelk_Kalf'] = np.where(self.df['Kg_WholeMilk_Kalf'] > 0, self.df['Kg_WholeMilk_Kalf'], self.df['Kg_KunstMelk_Kalf_Net']).clip(min=0)
+        self.df['Kg_KunstMelk_Kalf'] = (self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']).clip(min=0)
         
         # Silage Inventory Net (Opening - Closing)
         self.df['DS_GS_InvNet'] = self.df['DS_GrassSilage_0'] - self.df['DS_GrassSilage_t']
@@ -546,7 +545,7 @@ class VEMAllocationCalculator:
         # Scenario A: Forfaitair Output (Hectares * Theoretical Yield)
         harvest_gs_forfaitair = hectares_available_for_grass_silage * self.df['yield_gs_weighted']
         harvest_ms_forfaitair = self.df['Ha_Mais'] * self.df['yield_ms']
-        
+        100
         # Scenario B: Eigen Output (Back-calculated from Total Aanleg Input)
         # Formula: Harvested Volume = Total Aanleg - Bought Volume + Sold Volume
         aanleg_gs_input = self.df.get('DS_GrassSilage_Aanleg_Total', pd.Series(0, index=self.df.index))
@@ -1460,6 +1459,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/0209 Frank data eigen.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_eigen071.xlsx'
+    INPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/PB fix-2 feed ajusted.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/output PB fix-2 feed ajusted.xlsx'
     run_pipeline(INPUT, OUTPUT)

@@ -335,8 +335,7 @@ class VEMAllocationCalculator:
     def run_allocation(self):
         print(f"\n{'='*70}\nMODULE 2.2: VEM Allocation (Dynamic Input Method)\n{'='*70}")
         
-        self.df['Kg_KunstMelk_Kalf_Net'] = self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']
-        self.df['Kg_KunstMelk_Kalf'] = np.where(self.df['Kg_WholeMilk_Kalf'] > 0, self.df['Kg_WholeMilk_Kalf'], self.df['Kg_KunstMelk_Kalf_Net']).clip(min=0)
+        self.df['Kg_KunstMelk_Kalf'] = (self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']).clip(min=0)
         
         self.df['DS_GS_InvNet'] = self.df['DS_GrassSilage_0'] - self.df['DS_GrassSilage_t']
         self.df['DS_MS_InvNet'] = self.df['DS_MaizeSilage_0'] - self.df['DS_MaizeSilage_t']
@@ -1026,8 +1025,7 @@ class EmissionCalculator:
         df = ensure_numeric(df, 'Pit_Area_m2', 0.0)
         df['Pit_Area_m2'] = np.where(df['Pit_Area_m2'] > 0, df['Pit_Area_m2'], df['Walking_Area_m2'])
         
-        df = ensure_numeric(df, 'UUN_Override_g_l', 5.0)
-        df['UUN_Override_g_l'] = np.where(df['UUN_Override_g_l'] > 0, df['UUN_Override_g_l'], 5.0)
+        df = ensure_numeric(df, 'UUN_Override_g_l', 0.0)
 
         df = ensure_numeric(df, 'Puddle_Area_m2', 0.80)
         df['Puddle_Area_m2'] = np.where(df['Puddle_Area_m2'] > 0, df['Puddle_Area_m2'], 0.80)
@@ -1087,9 +1085,11 @@ class EmissionCalculator:
         for methodology in ['mun', 'vcre']:
             method_suffix = 'MUN' if methodology == 'mun' else 'VCRE'
             total_tan_col = f'Total_Corrected_TAN_{method_suffix}'
+            total_uun_col = 'Farm_Total_UUN_kg' if methodology == 'mun' else 'Total_UUN_Farm_VCRE'
             
             snelstal_stable_emissions_nh3 = []
             tan_concentrations = []
+            uun_concentrations = []
             
             print(f"    Running Snelstal Model Monte Carlo for [{method_suffix}] Method...")
             
@@ -1104,6 +1104,11 @@ class EmissionCalculator:
                 tan_concentration = indoor_tan_kg / vol_m3 if vol_m3 > 0 else 0.0
                 tan_concentrations.append(tan_concentration)
                 
+                calculated_uun = (row[total_uun_col] * 1000.0) / (25.0 * 365.0 * gve)
+                user_uun_override = row['UUN_Override_g_l']
+                final_uun_concentration = user_uun_override if user_uun_override > 0 else calculated_uun
+                uun_concentrations.append(final_uun_concentration)
+                
                 # Fetch grazing and regulatory discounts
                 grazing_hrs = row['grazing_time_frac_cow'] * 24.0 # Primary herd hours
                 rav_kg = row['RAV_NH3_kg']
@@ -1113,7 +1118,7 @@ class EmissionCalculator:
 
                 result = SnelstalModel.run(
                 num_runs=NUM_RUNS, calc_days=CALC_DAYS,
-                num_cows=gve, freq=10, urea_n=row['UUN_Override_g_l'],
+                num_cows=gve, freq=10, urea_n=final_uun_concentration,
                 tan=tan_concentration, grazing_hrs=grazing_hrs,
                 floor_area=row['Walking_Area_m2'], floor_temp=row['Temp_Floor_C'], floor_v=row['AirSpeed_Floor_ms'],
                 pool_area=row['Puddle_Area_m2'], pool_depth_mm=row['Puddle_Depth_mm'], floor_pH=row['Floor_pH'],
@@ -1126,6 +1131,7 @@ class EmissionCalculator:
                 snelstal_stable_emissions_nh3.append(total_farm_stable_nh3)
              
             df[f'TAN_Concentration_{method_suffix}'] = tan_concentrations    
+            df[f'UUN_Concentration_{method_suffix}'] = uun_concentrations
             df[f'Snelstal_Total_Stable_NH3_{method_suffix}'] = snelstal_stable_emissions_nh3
             
             # --- DISTRIBUTE EMISSIONS & CALCULATE OTHER LOSSES ---
@@ -1443,6 +1449,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/0907 DMS data eigen snel.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/Output_eigen_snelstal1.xlsx'
+    INPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/PB eigen-2 feed ajusted.xlsx'
+    OUTPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/output PBsnelstal eigen-2 feed ajusted.xlsx'
     run_pipeline(INPUT, OUTPUT)
