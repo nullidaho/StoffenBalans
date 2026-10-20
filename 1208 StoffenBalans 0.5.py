@@ -388,8 +388,12 @@ class VEMAllocationCalculator:
         # --- 1. Calculate Aggregated Inventories & Nets ---
         
         # Kunstmelk
+<<<<<<< Updated upstream
         self.df['Kg_KunstMelk_Kalf_Net'] = self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']
         self.df['Kg_KunstMelk_Kalf'] = np.where(self.df['Kg_WholeMilk_Kalf'] > 0, self.df['Kg_WholeMilk_Kalf'], self.df['Kg_KunstMelk_Kalf_Net']).clip(min=0)
+=======
+        self.df['Kg_KunstMelk_Kalf'] = self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']
+>>>>>>> Stashed changes
         
         # Silage Inventory Net (Opening - Closing)
         self.df['DS_GS_InvNet'] = self.df['DS_GrassSilage_0'] - self.df['DS_GrassSilage_t']

@@ -335,7 +335,7 @@ class VEMAllocationCalculator:
     def run_allocation(self):
         print(f"\n{'='*70}\nMODULE 2.2: VEM Allocation (Dynamic Input Method)\n{'='*70}")
         
-        self.df['Kg_KunstMelk_Kalf'] = (self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t']).clip(min=0)
+        self.df['Kg_KunstMelk_Kalf'] = (self.df['Kg_KunstMelk_Kalf_0'] + self.df['Kg_KunstMelk_Kalf_B'] - self.df['Kg_KunstMelk_Kalf_t'])
         
         self.df['DS_GS_InvNet'] = self.df['DS_GrassSilage_0'] - self.df['DS_GrassSilage_t']
         self.df['DS_MS_InvNet'] = self.df['DS_MaizeSilage_0'] - self.df['DS_MaizeSilage_t']
@@ -1449,6 +1449,6 @@ def run_pipeline(INPUT_PATH='InputREMAS.xlsx', OUTPUT_PATH='Output_REMAS_Complet
 
 
 if __name__ == '__main__':
-    INPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/PB eigen-2 feed ajusted.xlsx'
-    OUTPUT = '/Users/shuaij/Desktop/validation/3.0 Praktijkbedrijven/output PBsnelstal eigen-2 feed ajusted.xlsx'
+    INPUT = '/Users/anitashuai/Desktop/PB fix-2 feed ajusted.xlsx'
+    OUTPUT = '/Users/anitashuai/Desktop/output PBsnelstal eigen-2 feed ajusted.xlsx'
     run_pipeline(INPUT, OUTPUT)
